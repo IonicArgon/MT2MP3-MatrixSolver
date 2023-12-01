@@ -1,8 +1,11 @@
 #include "functions.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <time.h>
 #include <math.h>
+
+// --- bare minimum project requirements ---
 
 // this function reads a matrix market file and stores the data in a CSRMatrix
 void ReadMMtoCSR(const char *filename, CSRMatrix *matrix)
@@ -94,10 +97,139 @@ void spmv_csr(const CSRMatrix *A, const double *x, double *y)
     }
 }
 
+// --- end of bare minimum project requirements ---
+
+// --- here below is just extras ---
+
+// this function checks if two doubles are equal within a certain epsilon
+bool fuzzy_equals(double a, double b, double epsilon)
+{
+    if (fabs(a - b) < epsilon)
+    {
+        return true;
+    }
+    else
+    {
+        return false;
+    }
+}
+
+// --- end of extras ---
+
+// --- here below is just csr matrix functions ---
+
+// this function swaps two rows in a CSRMatrix
+// we create temporary arrays to store the row data
+// we then copy the data from CSRMatrix until we hit the first row
+// we then copy the data from the second row into that spot
+// we then continue copying the data from CSRMatrix until we hit the second row
+// we then copy the data from the first row into that spot
+// we then continue copying the data from CSRMatrix until we hit the end
+void CSR_row_swap(CSRMatrix *A, int row1, int row2)
+{
+    // create temporary arrays
+    double *temp_csr_data = (double *)malloc(A->num_non_zeros * sizeof(double));
+    int *temp_col_ind = (int *)malloc(A->num_non_zeros * sizeof(int));
+    int *temp_row_ptr = (int *)malloc((A->num_rows + 1) * sizeof(int));
+
+    // fill temporary arrays with zeros
+    for (int i = 0; i < A->num_non_zeros; i++)
+    {
+        temp_csr_data[i] = 0.0;
+        temp_col_ind[i] = 0;
+    }
+
+    for (int i = 0; i < A->num_rows + 1; i++)
+    {
+        temp_row_ptr[i] = 0;
+    }
+
+    // copy data from A into temporary arrays until we hit row1
+    int temp_csr_index = 0;
+    int temp_row_ptr_index = 0;
+    while (temp_row_ptr_index < row1)
+    {
+        for (int i = A->row_ptr[temp_row_ptr_index]; i < A->row_ptr[temp_row_ptr_index + 1]; i++)
+        {
+            temp_csr_data[temp_csr_index] = A->csr_data[i];
+            temp_col_ind[temp_csr_index] = A->col_ind[i];
+            temp_csr_index++;
+        }
+        temp_row_ptr[temp_row_ptr_index + 1] = temp_csr_index;
+        temp_row_ptr_index++;
+    }
+
+    // copy the data from row2 into the spot where row1 was
+    for (int i = A->row_ptr[row2]; i < A->row_ptr[row2 + 1]; i++)
+    {
+        temp_csr_data[temp_csr_index] = A->csr_data[i];
+        temp_col_ind[temp_csr_index] = A->col_ind[i];
+        temp_csr_index++;
+    }
+
+    temp_row_ptr[temp_row_ptr_index + 1] = temp_csr_index;
+    temp_row_ptr_index++;
+
+    // copy the data from A into temporary arrays until we hit row2
+    while (temp_row_ptr_index < row2)
+    {
+        for (int i = A->row_ptr[temp_row_ptr_index]; i < A->row_ptr[temp_row_ptr_index + 1]; i++)
+        {
+            temp_csr_data[temp_csr_index] = A->csr_data[i];
+            temp_col_ind[temp_csr_index] = A->col_ind[i];
+            temp_csr_index++;
+        }
+        temp_row_ptr[temp_row_ptr_index + 1] = temp_csr_index;
+        temp_row_ptr_index++;
+    }
+
+    // copy the data from row1 into the spot where row2 was
+    for (int i = A->row_ptr[row1]; i < A->row_ptr[row1 + 1]; i++)
+    {
+        temp_csr_data[temp_csr_index] = A->csr_data[i];
+        temp_col_ind[temp_csr_index] = A->col_ind[i];
+        temp_csr_index++;
+    }
+
+    temp_row_ptr[temp_row_ptr_index + 1] = temp_csr_index;
+    temp_row_ptr_index++;
+
+    // copy the data from A into temporary arrays until we hit the end
+    while (temp_row_ptr_index < A->num_rows)
+    {
+        for (int i = A->row_ptr[temp_row_ptr_index]; i < A->row_ptr[temp_row_ptr_index + 1]; i++)
+        {
+            temp_csr_data[temp_csr_index] = A->csr_data[i];
+            temp_col_ind[temp_csr_index] = A->col_ind[i];
+            temp_csr_index++;
+        }
+        temp_row_ptr[temp_row_ptr_index + 1] = temp_csr_index;
+        temp_row_ptr_index++;
+    }
+
+    // copy the data from temporary arrays into A
+    for (int i = 0; i < A->num_non_zeros; i++)
+    {
+        A->csr_data[i] = temp_csr_data[i];
+        A->col_ind[i] = temp_col_ind[i];
+    }
+
+    for (int i = 0; i < A->num_rows + 1; i++)
+    {
+        A->row_ptr[i] = temp_row_ptr[i];
+    }
+
+    // free temporary arrays
+    free(temp_csr_data);
+    free(temp_col_ind);
+    free(temp_row_ptr);
+}
+
+
 // --- here below is just solvers ---
 
 // Jacobi method solver
-void solver_iter_jacobi(const CSRMatrix *A, double *b, double *x, int max_iter)
+void solver_iter_jacobi(CSRMatrix *A, double *b, double *x, int max_iter)
 {
     // initialize x to zero
     for (int i = 0; i < A->num_cols; i++)
@@ -124,12 +256,89 @@ void solver_iter_jacobi(const CSRMatrix *A, double *b, double *x, int max_iter)
         }
     }
 
-    // if any diagonal elements are zero, abort
+    // check for zeros in the diagonal and if there are, row swap with a row
+    // that does not contain a zero in the column the zero is in
+    int swapped_rows[A->num_rows];
+    for (int i = 0; i < A->num_rows; i++)
+    {
+        swapped_rows[i] = 0;
+    }
+
     for (int i = 0; i < A->num_rows; i++)
     {
         if (diag[i] == 0.0)
         {
-            printf("Error: zero diagonal element in row %d\n", i);
+            // find a row that has a value in csr_data in the same column as the zero
+            printf("Warning: zero found at row %d and column %d\n", i, i);
+            printf("Swapping rows to fill the zero in...\n");
+            printf("Note: this does not guarantee that the matrix will be solvable!\n\n");
+            int row_to_swap = -1;
+            for (int j = 0; j < A->num_rows; j++)
+            {
+                for (int k = A->row_ptr[j]; k < A->row_ptr[j + 1]; k++)
+                {
+                    // if the row we're looking at has already been swapped, skip it
+                    if (swapped_rows[j])
+                    {
+                        continue;
+                    }
+
+                    if (A->col_ind[k] == i && fuzzy_equals(A->csr_data[k], 0.0, 0.0000000000001) == false)
+                    {
+                        row_to_swap = j;
+                        break;
+                    }
+                }
+                if (row_to_swap != -1)
+                {
+                    break;
+                }
+            }
+
+            // if we found a row to swap, then swap it
+            if (row_to_swap != -1 && !swapped_rows[row_to_swap] && !swapped_rows[i])
+            {
+                printf("Swapping row %d with row %d\n\n", i, row_to_swap);
+                if (i > row_to_swap)
+                {
+                    int temp = i;
+                    i = row_to_swap;
+                    row_to_swap = temp;
+                }
+                swapped_rows[i] = 1;
+
+                CSR_row_swap(A, i, row_to_swap);
+
+                // update the diagonal array
+                for (int j = 0; j < A->num_rows; j++)
+                {
+                    diag[j] = 0.0;
+                }
+
+                for (int j = 0; j < A->num_rows; j++)
+                {
+                    for (int k = A->row_ptr[j]; k < A->row_ptr[j + 1]; k++)
+                    {
+                        if (A->col_ind[k] == j)
+                        {
+                            diag[j] = A->csr_data[k];
+                        }
+                    }
+                }
+            }
+            else
+            {
+                printf("Error: Matrix is singular\n");
+            }
+        }
+    }
+
+    // if we still have zeros in the diagonal, then we can't solve the system
+    for (int i = 0; i < A->num_rows; i++)
+    {
+        if (diag[i] == 0.0)
+        {
+            printf("Error: Matrix is singular\n");
             exit(1);
         }
     }

@@ -1,6 +1,8 @@
 #ifndef FUNCTIONS_H
 #define FUNCTIONS_H
 
+#include <stdbool.h>
+
 // ###########################################################
 // Do not change this part
 typedef struct {
@@ -29,11 +31,19 @@ printing the whole vector r might not be a good idea. So
 3. A function called compute_norm to compute the norm of vector residual
 */
 
+// project requirements
 void print_CSRMatrix(const CSRMatrix *A);
 double compute_residual(const CSRMatrix *A, double *b, double *x);
 double compute_norm(double *r, int n);
 
+// extras
+bool fuzzy_equals(double a, double b, double epsilon);
+
+// a bunch of csr matrix functions
+void CSR_row_swap(CSRMatrix *A, int row1, int row2);
+
+// a bunch of solvers
 // jacobi method solver
-void solver_iter_jacobi(const CSRMatrix *A, double *b, double *x, int max_iter);
+void solver_iter_jacobi(CSRMatrix *A, double *b, double *x, int max_iter);
 
 #endif // FUNCTIONS_H

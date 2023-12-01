@@ -13,58 +13,41 @@ int main(int argc, char **argv)
 
     print_CSRMatrix(&A);
 
-    // testing spmv_csr
+    // set up x and b for jacobi method
     double *x = (double *)malloc(A.num_cols * sizeof(double));
-    double *y = (double *)malloc(A.num_rows * sizeof(double));
+    double *b = (double *)malloc(A.num_rows * sizeof(double));
 
+    // initialize x and b
     for (int i = 0; i < A.num_cols; i++)
     {
-        x[i] = 1.0;
+        x[i] = 0.0;
     }
-
-    spmv_csr(&A, x, y);
-
-    printf("y = \n");
-    for (int i = 0; i < A.num_rows; i++)
-    {
-        printf("%lf\n", y[i]);
-    }
-    printf("\n");
-
-    // clean up x and y
-    free(x);
-    free(y);
-
-    // testing solver
-    double *b = (double *)malloc(A.num_rows * sizeof(double));
-    double *x_sol = (double *)malloc(A.num_cols * sizeof(double));
 
     for (int i = 0; i < A.num_rows; i++)
     {
         b[i] = 1.0;
     }
 
-    solver_iter_jacobi(&A, b, x_sol, 10000);
+    // solve the linear system
+    solver_iter_jacobi(&A, b, x, 100);
 
-    printf("x_sol = \n");
+    // print the solution
+    printf("Solution:\n");
     for (int i = 0; i < A.num_cols; i++)
     {
-        printf("%lf\n", x_sol[i]);
+        printf("%f\n", x[i]);
     }
-    printf("\n");
 
-    // print the residual
-    double residual = compute_residual(&A, b, x_sol);
-    printf("residual = %lf\n", residual);
+    // compute the residual
+    double residual = compute_residual(&A, b, x);
+    printf("Residual: %f\n", residual);
 
-    // clean up b and x_sol
-    free(b);
-    free(x_sol);
-
-    // clean up csr matrix
+    // free memory
     free(A.csr_data);
     free(A.col_ind);
     free(A.row_ptr);
+    free(x);
+    free(b);
 
     return 0;
 }
