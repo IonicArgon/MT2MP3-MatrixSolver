@@ -28,6 +28,7 @@ void ReadMMtoCSR(const char *filename, CSRMatrix *matrix)
     matrix->csr_data = (double *)malloc(matrix->num_non_zeros * sizeof(double));
     matrix->col_ind = (int *)malloc(matrix->num_non_zeros * sizeof(int));
     matrix->row_ptr = (int *)malloc((matrix->num_rows + 1) * sizeof(int));
+    matrix->row_ptr[0] = 0;
 
     // csr_data is the values of the non-zero elements in order of rows (row 1, row 2, ...)
     // col_ind is the column index of the non-zero elements in order of rows (row 1, row 2, ...)
@@ -37,6 +38,14 @@ void ReadMMtoCSR(const char *filename, CSRMatrix *matrix)
     double *temp_csr_data = (double *)malloc(matrix->num_non_zeros * sizeof(double));
     int *temp_col_ind = (int *)malloc(matrix->num_non_zeros * sizeof(int));
     int *temp_row_ind = (int *)malloc(matrix->num_non_zeros * sizeof(int));
+
+    // fill temporary arrays with zeros
+    for (int i = 0; i < matrix->num_non_zeros; i++)
+    {
+        temp_csr_data[i] = 0.0;
+        temp_col_ind[i] = 0;
+        temp_row_ind[i] = 0;
+    }
 
     int row, col;
     double val;
@@ -77,6 +86,9 @@ void ReadMMtoCSR(const char *filename, CSRMatrix *matrix)
     free(temp_csr_data);
     free(temp_col_ind);
     free(temp_row_ind);
+    temp_csr_data = NULL;
+    temp_col_ind = NULL;
+    temp_row_ind = NULL;
 
     // close the file
     fclose(file);
@@ -95,6 +107,37 @@ void spmv_csr(const CSRMatrix *A, const double *x, double *y)
         }
         y[i] = sum;
     }
+}
+
+// this function computes the residual of Ax-b
+double compute_residual(const CSRMatrix *A, double *b, double *x)
+{
+    double *r = (double *)malloc(A->num_rows * sizeof(double));
+    spmv_csr(A, x, r);
+
+    for (int i = 0; i < A->num_rows; i++)
+    {
+        r[i] = r[i] - b[i];
+    }
+
+    double norm = compute_norm(r, A->num_rows);
+
+    free(r);
+
+    return norm;
+}
+
+// this function computes the norm of a vector
+double compute_norm(double *r, int n)
+{
+    double norm = 0.0;
+    for (int i = 0; i < n; i++)
+    {
+        norm += r[i] * r[i];
+    }
+    norm = sqrt(norm);
+
+    return norm;
 }
 
 // --- end of bare minimum project requirements ---
@@ -119,12 +162,6 @@ bool fuzzy_equals(double a, double b, double epsilon)
 // --- here below is just csr matrix functions ---
 
 // this function swaps two rows in a CSRMatrix
-// we create temporary arrays to store the row data
-// we then copy the data from CSRMatrix until we hit the first row
-// we then copy the data from the second row into that spot
-// we then continue copying the data from CSRMatrix until we hit the second row
-// we then copy the data from the first row into that spot
-// we then continue copying the data from CSRMatrix until we hit the end
 void CSR_row_swap(CSRMatrix *A, int row1, int row2)
 {
     // create temporary arrays
@@ -225,39 +262,32 @@ void CSR_row_swap(CSRMatrix *A, int row1, int row2)
     free(temp_row_ptr);
 }
 
-
-// --- here below is just solvers ---
-
-// Jacobi method solver
-void solver_iter_jacobi(CSRMatrix *A, double *b, double *x, int max_iter)
+// this function frees the memory allocated for a CSRMatrix
+void free_CSRMatrix(CSRMatrix *A)
 {
-    // initialize x to zero
-    for (int i = 0; i < A->num_cols; i++)
-    {
-        x[i] = 0.0;
-    }
+    free(A->csr_data);
+    free(A->col_ind);
+    free(A->row_ptr);
+    A->csr_data = NULL;
+    A->col_ind = NULL;
+    A->row_ptr = NULL;
+    A->num_rows = 0;
+    A->num_cols = 0;
+    A->num_non_zeros = 0;
+}
 
-    // create a new array for diagonal elements, initialize it to zero
-    double *diag = (double *)malloc(A->num_rows * sizeof(double));
-    for (int i = 0; i < A->num_rows; i++)
-    {
-        diag[i] = 0.0;
-    }
+// --- end of csr matrix functions ---
 
-    // then copy over any diagonal elements from A
-    for (int i = 0; i < A->num_rows; i++)
-    {
-        for (int j = A->row_ptr[i]; j < A->row_ptr[i + 1]; j++)
-        {
-            if (A->col_ind[j] == i)
-            {
-                diag[i] = A->csr_data[j];
-            }
-        }
-    }
+// --- here below is just solvers and parts of solvers ---
 
-    // check for zeros in the diagonal and if there are, row swap with a row
-    // that does not contain a zero in the column the zero is in
+// --- preconditioners
+
+// Jacobi/Gauss-Seidel preconditioner
+// ensures that the matrix at the very least contains all non-zero elements
+// in the diagonal
+void preconditioner_jacobi_gauss(CSRMatrix *A, double *diag)
+{
+    // check for zeros in the diagonal and swap rows if needed
     int swapped_rows[A->num_rows];
     for (int i = 0; i < A->num_rows; i++)
     {
@@ -328,9 +358,46 @@ void solver_iter_jacobi(CSRMatrix *A, double *b, double *x, int max_iter)
             }
             else
             {
-                printf("Error: Matrix is singular\n");
+                return;
             }
         }
+    }
+}
+
+// --- solvers
+
+// Jacobi method solver
+void solver_iter_jacobi(CSRMatrix *A, double *b, double *x, int max_iter, bool row_swap)
+{
+    // create a new array for diagonal elements, initialize it to zero
+    double *diag = (double *)malloc(A->num_rows * sizeof(double));
+    for (int i = 0; i < A->num_rows; i++)
+    {
+        diag[i] = 0.0;
+    }
+
+    // then copy over any diagonal elements from A
+    for (int i = 0; i < A->num_rows; i++)
+    {
+        for (int j = A->row_ptr[i]; j < A->row_ptr[i + 1]; j++)
+        {
+            if (A->col_ind[j] == i)
+            {
+                diag[i] = A->csr_data[j];
+            }
+        }
+    }
+
+    if (row_swap)
+    {
+        printf("Warning: row swapping is enabled. The original matrix will not be preserved.\n\n");
+        preconditioner_jacobi_gauss(A, diag);
+    }
+
+    // initialize x to zero
+    for (int i = 0; i < A->num_cols; i++)
+    {
+        x[i] = 0.0;
     }
 
     // if we still have zeros in the diagonal, then we can't solve the system
@@ -339,7 +406,7 @@ void solver_iter_jacobi(CSRMatrix *A, double *b, double *x, int max_iter)
         if (diag[i] == 0.0)
         {
             printf("Error: Matrix is singular\n");
-            exit(1);
+            return;
         }
     }
 
@@ -362,43 +429,84 @@ void solver_iter_jacobi(CSRMatrix *A, double *b, double *x, int max_iter)
     }
 }
 
-// --- end of solvers ---
-
-// this function computes the residual of Ax-b
-double compute_residual(const CSRMatrix *A, double *b, double *x)
+// Gauss-Seidel method solver
+void solver_iter_gauss_seidel(CSRMatrix *A, double *b, double *x, int max_iter, bool row_swap)
 {
-    double *r = (double *)malloc(A->num_rows * sizeof(double));
-    spmv_csr(A, x, r);
-
+    // create a new array for diagonal elements, initialize it to zero
+    double *diag = (double *)malloc(A->num_rows * sizeof(double));
     for (int i = 0; i < A->num_rows; i++)
     {
-        r[i] = r[i] - b[i];
+        diag[i] = 0.0;
     }
 
-    double norm = compute_norm(r, A->num_rows);
-
-    free(r);
-
-    return norm;
-}
-
-// this function computes the norm of a vector
-double compute_norm(double *r, int n)
-{
-    double norm = 0.0;
-    for (int i = 0; i < n; i++)
+    // then copy over any diagonal elements from A
+    for (int i = 0; i < A->num_rows; i++)
     {
-        norm += r[i] * r[i];
+        for (int j = A->row_ptr[i]; j < A->row_ptr[i + 1]; j++)
+        {
+            if (A->col_ind[j] == i)
+            {
+                diag[i] = A->csr_data[j];
+            }
+        }
     }
-    norm = sqrt(norm);
 
-    return norm;
+    if (row_swap)
+    {
+        printf("Warning: row swapping is enabled. The original matrix will not be preserved.\n\n");
+        preconditioner_jacobi_gauss(A, diag);
+    }
+
+    // initialize x to zero
+    for (int i = 0; i < A->num_cols; i++)
+    {
+        x[i] = 0.0;
+    }
+
+    // if we still have zeros in the diagonal, then we can't solve the system
+    for (int i = 0; i < A->num_rows; i++)
+    {
+        if (diag[i] == 0.0)
+        {
+            printf("Error: Matrix is singular\n");
+            return;
+        }
+    }
+
+    // iterate and compute x
+    // residual calculation is done in the main function
+    for (int iter = 0; iter < max_iter; iter++)
+    {
+        for (int i = 0; i < A->num_rows; i++)
+        {
+            double s1 = 0.0;
+            double s2 = 0.0;
+
+            for (int j = A->row_ptr[i]; j < A->row_ptr[i + 1]; j++)
+            {
+                if (A->col_ind[j] < i)
+                {
+                    s1 += A->csr_data[j] * x[A->col_ind[j]];
+                }
+                else if (A->col_ind[j] > i)
+                {
+                    s2 += A->csr_data[j] * x[A->col_ind[j]];
+                }
+            }
+
+            x[i] = (b[i] - s1 - s2) / diag[i];
+        }
+    }
 }
+
+// --- end of solvers ---
+
+// --- here below is just extra project requirements ---
 
 // pretty print the matrix
 void print_CSRMatrix(const CSRMatrix *A)
 {
-    printf("CSR Matrix:\n");
+    printf("Pretty print of CSR Matrix:\n");
     printf("\t- num_rows: %d\n", A->num_rows);
     printf("\t- num_cols: %d\n", A->num_cols);
     printf("\t- num_non_zeros: %d\n\n", A->num_non_zeros);
@@ -426,9 +534,8 @@ void print_CSRMatrix(const CSRMatrix *A)
     int max_row_width = snprintf(NULL, 0, "%d", A->num_rows);
     int row_spacing = max_row_width + 3;
 
-
     // print the column row first
-    printf("%*s", row_spacing-1, "");
+    printf("%*s", row_spacing - 1, "");
     for (int i = 0; i < A->num_cols; i++)
     {
         printf("%*d", max_element_width + 1, i);
@@ -460,3 +567,35 @@ void print_CSRMatrix(const CSRMatrix *A)
     }
     printf("\n");
 }
+
+// print the matrix in raw format
+void raw_print_CSRMatrix(const CSRMatrix *A)
+{
+    printf("Raw print of CSR Matrix:\n");
+    printf("\t- num_rows: %d\n", A->num_rows);
+    printf("\t- num_cols: %d\n", A->num_cols);
+    printf("\t- num_non_zeros: %d\n\n", A->num_non_zeros);
+
+    printf("csr_data:\n");
+    for (int i = 0; i < A->num_non_zeros; i++)
+    {
+        printf("%lf ", A->csr_data[i]);
+    }
+    printf("\n\n");
+
+    printf("col_ind:\n");
+    for (int i = 0; i < A->num_non_zeros; i++)
+    {
+        printf("%d ", A->col_ind[i]);
+    }
+    printf("\n\n");
+
+    printf("row_ptr:\n");
+    for (int i = 0; i < A->num_rows + 1; i++)
+    {
+        printf("%d ", A->row_ptr[i]);
+    }
+    printf("\n\n");
+}
+
+// --- end of extra project requirements ---

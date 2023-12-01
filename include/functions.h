@@ -33,6 +33,7 @@ printing the whole vector r might not be a good idea. So
 
 // project requirements
 void print_CSRMatrix(const CSRMatrix *A);
+void raw_print_CSRMatrix(const CSRMatrix *A);
 double compute_residual(const CSRMatrix *A, double *b, double *x);
 double compute_norm(double *r, int n);
 
@@ -41,9 +42,12 @@ bool fuzzy_equals(double a, double b, double epsilon);
 
 // a bunch of csr matrix functions
 void CSR_row_swap(CSRMatrix *A, int row1, int row2);
+void free_CSRMatrix(CSRMatrix *A);
 
 // a bunch of solvers
 // jacobi method solver
-void solver_iter_jacobi(CSRMatrix *A, double *b, double *x, int max_iter);
+void solver_iter_jacobi(CSRMatrix *A, double *b, double *x, int max_iter, bool row_swap);
+// gauss-seidel method solver
+void solver_iter_gauss_seidel(CSRMatrix *A, double *b, double *x, int max_iter, bool row_swap);
 
 #endif // FUNCTIONS_H
