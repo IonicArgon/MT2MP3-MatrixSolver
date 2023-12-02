@@ -7,11 +7,31 @@
 
 // --- bare minimum project requirements ---
 
+typedef struct {
+    int row;
+    int col;
+    double val;
+} Element;
+
+int compare(const void *a, const void *b)
+{
+    int row_a = ((Element *)a)->row;
+    int row_b = ((Element *)b)->row;
+    return (row_a - row_b);
+}
+
 // this function reads a matrix market file and stores the data in a CSRMatrix
 void ReadMMtoCSR(const char *filename, CSRMatrix *matrix)
 {
     // open file
     FILE *file = fopen(filename, "r");
+
+    // check if file exists
+    if (file == NULL)
+    {
+        printf("Error: file does not exist\n");
+        return;
+    }
 
     // ignore the header (the lines start with '%')
     char line[256];
@@ -28,67 +48,89 @@ void ReadMMtoCSR(const char *filename, CSRMatrix *matrix)
     matrix->csr_data = (double *)malloc(matrix->num_non_zeros * sizeof(double));
     matrix->col_ind = (int *)malloc(matrix->num_non_zeros * sizeof(int));
     matrix->row_ptr = (int *)malloc((matrix->num_rows + 1) * sizeof(int));
-    matrix->row_ptr[0] = 0;
 
-    // csr_data is the values of the non-zero elements in order of rows (row 1, row 2, ...)
-    // col_ind is the column index of the non-zero elements in order of rows (row 1, row 2, ...)
-    // row_ptr is the number of non-zero elements in each row
-
-    // read the data first and store it all in temporary arrays
-    double *temp_csr_data = (double *)malloc(matrix->num_non_zeros * sizeof(double));
-    int *temp_col_ind = (int *)malloc(matrix->num_non_zeros * sizeof(int));
-    int *temp_row_ind = (int *)malloc(matrix->num_non_zeros * sizeof(int));
-
-    // fill temporary arrays with zeros
-    for (int i = 0; i < matrix->num_non_zeros; i++)
+    // check if memory allocation was successful
+    if (matrix->csr_data == NULL || matrix->col_ind == NULL || matrix->row_ptr == NULL)
     {
-        temp_csr_data[i] = 0.0;
-        temp_col_ind[i] = 0;
-        temp_row_ind[i] = 0;
+        printf("Error: memory allocation failed\n");
+        return;
     }
 
-    int row, col;
-    double val;
+    // fill the arrays with zeros
     for (int i = 0; i < matrix->num_non_zeros; i++)
     {
-        fscanf(file, "%d %d %lf\n", &row, &col, &val);
-        temp_row_ind[i] = row - 1;
-        temp_col_ind[i] = col - 1;
-        temp_csr_data[i] = val;
+        matrix->csr_data[i] = 0.0;
+        matrix->col_ind[i] = 0;
     }
 
-    // write csr data and corresponding column indices in order of rows into
-    // the structure
-    int row_ptr_index = 0;
-    int current_csr_index = 0;
-    while (row_ptr_index < matrix->num_rows)
+    for (int i = 0; i < matrix->num_rows + 1; i++)
     {
-        int num_non_zeros_in_row = 0;
-        for (int i = 0; i < matrix->num_non_zeros; i++)
+        matrix->row_ptr[i] = 0;
+    }
+
+    // create an array of elements to store the data temporarily
+    Element *elements = (Element *)malloc(matrix->num_non_zeros * sizeof(Element));
+
+    // check if memory allocation was successful
+    if (elements == NULL)
+    {
+        printf("Error: memory allocation failed\n");
+        return;
+    }
+    
+    // fill temporary array with zeros
+    for (int i = 0; i < matrix->num_non_zeros; i++)
+    {
+        elements[i].row = 0;
+        elements[i].col = 0;
+        elements[i].val = 0.0;
+    }
+
+    // read the data from the file into the temporary array
+    int index = 0;
+    while (fgets(line, sizeof(line), file))
+    {
+        int row, col;
+        double val;
+        sscanf(line, "%d %d %lf", &row, &col, &val);
+        elements[index].row = row - 1;
+        elements[index].col = col - 1;
+        elements[index].val = val;
+        index++;
+    }
+
+    // sort the temporary array by row
+    qsort(elements, matrix->num_non_zeros, sizeof(Element), compare);
+
+    // write csr data
+    for (int i = 0; i < matrix->num_non_zeros; i++)
+    {
+        matrix->csr_data[i] = elements[i].val;
+        matrix->col_ind[i] = elements[i].col;
+    }
+
+    // row pointer data is the number of non-zero elements in each row plus the previous row pointer
+    int row = 0;
+    for (int i = 0; i < matrix->num_non_zeros; i++)
+    {
+        if (elements[i].row == row)
         {
-            if (temp_row_ind[i] == row_ptr_index)
-            {
-                matrix->csr_data[current_csr_index] = temp_csr_data[i];
-                matrix->col_ind[current_csr_index] = temp_col_ind[i];
-                current_csr_index++;
-                num_non_zeros_in_row++;
-            }
+            matrix->row_ptr[row + 1]++;
         }
-        matrix->row_ptr[row_ptr_index + 1] = matrix->row_ptr[row_ptr_index] + num_non_zeros_in_row;
-        row_ptr_index++;
+        else
+        {
+            row++;
+            matrix->row_ptr[row + 1]++;
+        }
     }
 
-    // the last element of row_ptr is the number of non-zero elements
-    // in the matrix
-    matrix->row_ptr[matrix->num_rows + 1] = matrix->num_non_zeros;
+    for (int i = 0; i < matrix->num_rows; i++)
+    {
+        matrix->row_ptr[i + 1] += matrix->row_ptr[i];
+    }
 
-    // free the temporary arrays
-    free(temp_csr_data);
-    free(temp_col_ind);
-    free(temp_row_ind);
-    temp_csr_data = NULL;
-    temp_col_ind = NULL;
-    temp_row_ind = NULL;
+    // free the temporary array
+    free(elements);
 
     // close the file
     fclose(file);
@@ -498,6 +540,9 @@ void solver_iter_gauss_seidel(CSRMatrix *A, double *b, double *x, int max_iter, 
         }
     }
 }
+
+// Generalized Minimal Residual method solver
+//todo: make this work
 
 // --- end of solvers ---
 
