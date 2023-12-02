@@ -35,11 +35,21 @@ printing the whole vector r might not be a good idea. So
 3. A function called compute_norm to compute the norm of vector residual
 */
 
+// extra stuff
+bool fuzzy_equals(double a, double b, double epsilon);
+double compute_norm(double *x, int n);
+double compute_residual(CSRMatrix *A, const double *b, const double *x);
+
+// solving stuff
+void preconditioner_jacobi_gauss(CSRMatrix *A, double *diagonal);
+void solver_iter_jacobi(CSRMatrix *A, const double *b, double *x, const int max_iter, bool precondition);
+
 // matrix specific functions
 void CSR_raw_print(const CSRMatrix *A);
 void CSR_pretty_print(const CSRMatrix *A);
 void CSR_free(CSRMatrix *A);
 char CSR_triangular_test(const CSRMatrix *A);
 void CSR_transpose(CSRMatrix *A);
+void CSR_row_swap(CSRMatrix *A, int row1, int row2);
 
 #endif // FUNCTIONS_H

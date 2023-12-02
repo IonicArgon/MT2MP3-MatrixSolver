@@ -16,30 +16,50 @@ int main(int argc, char const *argv[])
 
     // print the matrix
     CSR_pretty_print(A);
+
+    // check if the matrix is triangular
+    char triangular = CSR_triangular_test(A);
+    if (triangular == 'N')
+    {
+        printf("The matrix is not triangular\n");
+    }
+    else if (triangular == 'L')
+    {
+        printf("The matrix is lower triangular\n");
+    }
+    else if (triangular == 'U')
+    {
+        printf("The matrix is upper triangular\n");
+    }
     
-    // create a vector x filled with 1s
+    // create a vector x and b to prepare for solving
     double *x = (double *)malloc(A->num_cols * sizeof(double));
+    double *b = (double *)malloc(A->num_cols * sizeof(double));
+
+    // initialize x and b
     for (int i = 0; i < A->num_cols; i++)
     {
-        x[i] = 1.0;
+        x[i] = 0.0;
+        b[i] = 1.0;
     }
 
-    // create a vector y to store the result of the matrix-vector product
-    double *y = (double *)malloc(A->num_rows * sizeof(double));
+    // solve the system
+    solver_iter_jacobi(A, b, x, 1000, true);
 
-    // compute the matrix-vector product
-    spmv_csr(A, x, y);
+    // compute the residual
+    double residual = compute_residual(A, b, x);
+    printf("\nResidual: %e\n", residual);
 
-    // print the result
-    printf("Result of the matrix-vector product:\n");
-    for (int i = 0; i < A->num_rows; i++)
+    // print the solution
+    printf("\nSolution:\n");
+    for (int i = 0; i < A->num_cols; i++)
     {
-        printf("\t%f\n", y[i]);
+        printf("\t%f\n", x[i]);
     }
 
     // clean up
     CSR_free(A);
     free(x);
-    free(y);
+    free(b);
     free(A);
 }

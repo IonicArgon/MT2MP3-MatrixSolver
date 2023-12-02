@@ -7,7 +7,8 @@
 
 // --- bare minimum project requirements ---
 
-typedef struct {
+typedef struct
+{
     int row;
     int col;
     double val;
@@ -45,8 +46,8 @@ void ReadMMtoCSR(const char *filename, CSRMatrix *matrix)
     sscanf(line, "%d %d %d", &matrix->num_rows, &matrix->num_cols, &matrix->num_non_zeros);
 
     // allocate memory for the arrays
-    matrix->csr_data = (double *)malloc(2 * matrix->num_non_zeros * sizeof(double));
-    matrix->col_ind = (int *)malloc(2 * matrix->num_non_zeros * sizeof(int));
+    matrix->csr_data = (double *)malloc(matrix->num_non_zeros * sizeof(double));
+    matrix->col_ind = (int *)malloc(matrix->num_non_zeros * sizeof(int));
     matrix->row_ptr = (int *)malloc((matrix->num_rows + 1) * sizeof(int));
 
     // check if memory allocation was successful
@@ -57,7 +58,7 @@ void ReadMMtoCSR(const char *filename, CSRMatrix *matrix)
     }
 
     // fill the arrays with zeros
-    for (int i = 0; i < 2 * matrix->num_non_zeros; i++)
+    for (int i = 0; i < matrix->num_non_zeros; i++)
     {
         matrix->csr_data[i] = 0.0;
         matrix->col_ind[i] = 0;
@@ -77,7 +78,7 @@ void ReadMMtoCSR(const char *filename, CSRMatrix *matrix)
         printf("Error: memory allocation failed\n");
         return;
     }
-    
+
     // fill temporary array with zeros
     for (int i = 0; i < matrix->num_non_zeros; i++)
     {
@@ -144,6 +145,25 @@ void ReadMMtoCSR(const char *filename, CSRMatrix *matrix)
 // 3. y = y1 + y2 + (diagonal elements of A)*x
 void spmv_csr(CSRMatrix *A, const double *x, double *y)
 {
+    // first check if the matrix is triangular
+    char triangular = CSR_triangular_test(A);
+
+    // if the matrix is not triangular or is upper triangular, we can just do a normal matrix-vector multiplication
+    if (triangular == 'N' || triangular == 'U')
+    {
+        for (int i = 0; i < A->num_rows; i++)
+        {
+            for (int j = A->row_ptr[i]; j < A->row_ptr[i + 1]; j++)
+            {
+                y[i] += A->csr_data[j] * x[A->col_ind[j]];
+            }
+        }
+        return;
+    }
+
+    // lower triangular matrices are defined as symmetric, skew, or hermitian
+    // matrices in MTX format so we calculate using A*x + A^T*x + (diagonal elements of A)*x
+
     // calculate y1
     for (int i = 0; i < A->num_rows; i++)
     {
@@ -185,6 +205,263 @@ void spmv_csr(CSRMatrix *A, const double *x, double *y)
 
 // --- end of bare minimum project requirements ---
 
+// --- extra stuff ---
+
+// this function checks if two doubles are equal within a certain tolerance
+bool fuzzy_equals(double a, double b, double epsilon)
+{
+    return fabs(a - b) < epsilon;
+}
+
+// this function computes the norm of a vector
+double compute_norm(double *x, int n)
+{
+    double norm = 0.0;
+    for (int i = 0; i < n; i++)
+    {
+        norm += x[i] * x[i];
+    }
+    return sqrt(norm);
+}
+
+// this function computes the residual of a matrix
+double compute_residual(CSRMatrix *A, const double *b, const double *x)
+{
+    // create a vector to store the result of A*x
+    double *Ax = (double *)malloc(A->num_cols * sizeof(double));
+
+    // check if memory allocation was successful
+    if (Ax == NULL)
+    {
+        printf("Error: memory allocation failed\n");
+        return 0.0;
+    }
+
+    // initialize Ax to 0
+    for (int i = 0; i < A->num_cols; i++)
+    {
+        Ax[i] = 0.0;
+    }
+
+    // calculate Ax
+    spmv_csr(A, x, Ax);
+
+    // calculate r = Ax - b
+    double *r = (double *)malloc(A->num_cols * sizeof(double));
+
+    // check if memory allocation was successful
+    if (r == NULL)
+    {
+        printf("Error: memory allocation failed\n");
+        return 0.0;
+    }
+
+    for (int i = 0; i < A->num_cols; i++)
+    {
+        r[i] = Ax[i] - b[i];
+    }
+
+    // calculate the norm of r
+    double norm = compute_norm(r, A->num_cols);
+
+    // free memory
+    free(Ax);
+    free(r);
+
+    return norm;
+}
+
+// --- end of extra stuff ---
+
+// --- solving stuff ---
+
+// jacobi preconditioner will check the diagonal elements of A and
+// perform row swaps if necessary to make sure the diagonal elements
+// are non-zero
+void preconditioner_jacobi_gauss(CSRMatrix *A, double *diag)
+{
+    // check for zeros in the diagonal and swap rows if needed
+    int swapped_rows[A->num_rows];
+    for (int i = 0; i < A->num_rows; i++)
+    {
+        swapped_rows[i] = 0;
+    }
+
+    for (int i = 0; i < A->num_rows; i++)
+    {
+        if (diag[i] == 0.0)
+        {
+            // find a row that has a value in csr_data in the same column as the zero
+            printf("Warning: zero found at row %d and column %d\n", i, i);
+            printf("Swapping rows to fill the zero in...\n");
+            printf("Note: this does not guarantee that the matrix will be solvable!\n\n");
+            int row_to_swap = -1;
+            for (int j = 0; j < A->num_rows; j++)
+            {
+                for (int k = A->row_ptr[j]; k < A->row_ptr[j + 1]; k++)
+                {
+                    // if the row we're looking at has already been swapped, skip it
+                    if (swapped_rows[j])
+                    {
+                        continue;
+                    }
+
+                    if (A->col_ind[k] == i && fuzzy_equals(A->csr_data[k], 0.0, 0.0000000000001) == false)
+                    {
+                        row_to_swap = j;
+                        break;
+                    }
+                }
+                if (row_to_swap != -1)
+                {
+                    break;
+                }
+            }
+
+            // if we found a row to swap, then swap it
+            if (row_to_swap != -1 && !swapped_rows[row_to_swap] && !swapped_rows[i])
+            {
+                printf("Swapping row %d with row %d\n\n", i, row_to_swap);
+                if (i > row_to_swap)
+                {
+                    int temp = i;
+                    i = row_to_swap;
+                    row_to_swap = temp;
+                }
+                swapped_rows[i] = 1;
+
+                CSR_row_swap(A, i, row_to_swap);
+
+                // update the diagonal array
+                for (int j = 0; j < A->num_rows; j++)
+                {
+                    diag[j] = 0.0;
+                }
+
+                for (int j = 0; j < A->num_rows; j++)
+                {
+                    for (int k = A->row_ptr[j]; k < A->row_ptr[j + 1]; k++)
+                    {
+                        if (A->col_ind[k] == j)
+                        {
+                            diag[j] = A->csr_data[k];
+                        }
+                    }
+                }
+            }
+            else
+            {
+                return;
+            }
+        }
+    }
+}
+
+// jacobi method solver
+void solver_iter_jacobi(CSRMatrix *A, const double *b, double *x, const int max_iter, bool precondition)
+{
+    // create a vector to store the diagonal elements of A
+    double *diagonal = (double *)malloc(A->num_rows * sizeof(double));
+
+    // check if memory allocation was successful
+    if (diagonal == NULL)
+    {
+        printf("Error: memory allocation failed\n");
+        return;
+    }
+
+    // fill the vector with the diagonal elements of A
+    for (int i = 0; i < A->num_rows; i++)
+    {
+        for (int j = A->row_ptr[i]; j < A->row_ptr[i + 1]; j++)
+        {
+            if (A->col_ind[j] == i)
+            {
+                diagonal[i] = A->csr_data[j];
+            }
+        }
+    }
+
+    // check if we need to use a preconditioner
+    if (precondition == true)
+    {
+        printf("Warning: preconditioning is enabled. The original matrix will not be preserved.\n");
+        preconditioner_jacobi_gauss(A, diagonal);
+    }
+
+    // initialize x to 0
+    for (int i = 0; i < A->num_cols; i++)
+    {
+        x[i] = 0.0;
+    }
+
+    // check if the diagonal elements of A are all non-zero
+    for (int i = 0; i < A->num_rows; i++)
+    {
+        if (diagonal[i] == 0.0)
+        {
+            printf("Error: Matrix is singular and therefore cannot be solved.\n");
+            return;
+        }
+    }
+
+    // check if the matrix is triangular
+    char triangular = CSR_triangular_test(A);
+
+    // iterate and compute x
+    // if it's non triangular or upper triangular, we can just do a normal jacobi iteration
+    if (triangular == 'N' || triangular == 'U')
+    {
+        for (int iter = 0; iter < max_iter; iter++)
+        {
+            for (int i = 0; i < A->num_rows; i++)
+            {
+                double sum = 0.0;
+                for (int j = A->row_ptr[i]; j < A->row_ptr[i + 1]; j++)
+                {
+                    if (A->col_ind[j] != i)
+                    {
+                        sum += A->csr_data[j] * x[A->col_ind[j]];
+                    }
+                }
+                x[i] = (b[i] - sum) / diagonal[i];
+            }
+        }
+    }
+    // if it's lower triangular, the matrix is symmetric, skew, or hermitian
+    // we have iterate but take into account both halfs of the matrix (reflection across x axis)
+    else if (triangular == 'L')
+    {
+        for (int iter = 0; iter < max_iter; iter++)
+        {
+            for (int i = 0; i < A->num_rows; i++)
+            {
+                double sum = 0.0;
+                for (int j = A->row_ptr[i]; j < A->row_ptr[i + 1]; j++)
+                {
+                    if (A->col_ind[j] != i)
+                    {
+                        sum += A->csr_data[j] * x[A->col_ind[j]];
+                    }
+                }
+                CSR_transpose(A);
+                for (int j = A->row_ptr[i]; j < A->row_ptr[i + 1]; j++)
+                {
+                    if (A->col_ind[j] != i)
+                    {
+                        sum += A->csr_data[j] * x[A->col_ind[j]];
+                    }
+                }
+                CSR_transpose(A);
+
+                x[i] = (b[i] - sum) / diagonal[i];
+            }
+        }
+    }
+
+    // free the diagonal vector
+    free(diagonal);
+}
 
 // --- matrix specific functions ---
 
@@ -251,7 +528,7 @@ void CSR_pretty_print(const CSRMatrix *A)
     printf("\n");
 
     // print top border
-    printf("%*s", left_spacing, "");
+    printf("%*s", left_spacing, "+-");
     for (int i = 0; i < A->num_cols; i++)
     {
         for (int j = 0; j < max_width + 1; j++)
@@ -268,21 +545,25 @@ void CSR_pretty_print(const CSRMatrix *A)
         printf("%*d |", max_row_width, i);
         for (int j = 0; j < A->num_cols; j++)
         {
-            if (j == A->col_ind[index])
+            int found = 0;
+            for (int k = A->row_ptr[i]; k < A->row_ptr[i + 1]; k++)
             {
-                printf("%*lf", max_width + 1, A->csr_data[index]);
-                index++;
+                if (A->col_ind[k] == j)
+                {
+                    printf("%*lf", max_width + 1, A->csr_data[k]);
+                    found = 1;
+                    break;
+                }
             }
-            else
+            if (found == 0)
             {
-                printf("%*s", max_width + 1, "");
+                printf("%*d", max_width + 1, 0);
             }
         }
         printf("\n");
     }
     printf("\n");
 }
-
 
 // this function frees the memory allocated for a CSRMatrix
 void CSR_free(CSRMatrix *A)
@@ -296,49 +577,60 @@ void CSR_free(CSRMatrix *A)
 // returns 'U' if upper triangular, 'L' if lower triangular, 'N' if neither
 char CSR_triangular_test(const CSRMatrix *A)
 {
-    // check if matrix is square
-    if (A->num_rows != A->num_cols)
-    {
-        printf("Error: matrix is not square\n");
-        return 'N';
-    }
-
+    bool upper = false;
+    bool lower = false;
     char triangular = 'N';
 
     // check if matrix is upper triangular
-    // for each row, check if there is an element before the diagonal element
     for (int i = 0; i < A->num_rows; i++)
     {
         for (int j = A->row_ptr[i]; j < A->row_ptr[i + 1]; j++)
         {
             if (A->col_ind[j] < i)
             {
-                triangular = 'N';
-            }
-            else if (A->col_ind[j] == i)
-            {
-                triangular = 'U';
+                upper = false;
                 break;
             }
+            else
+            {
+                upper = true;
+            }
+        }
+        if (upper == false)
+        {
+            break;
         }
     }
 
     // check if matrix is lower triangular
-    // for each row, check if there is an element after the diagonal element
     for (int i = 0; i < A->num_rows; i++)
     {
         for (int j = A->row_ptr[i]; j < A->row_ptr[i + 1]; j++)
         {
             if (A->col_ind[j] > i)
             {
-                triangular = 'N';
-            }
-            else if (A->col_ind[j] == i)
-            {
-                triangular = 'L';
+                lower = false;
                 break;
             }
+            else
+            {
+                lower = true;
+            }
         }
+        if (lower == false)
+        {
+            break;
+        }
+    }
+
+    // set triangularity
+    if (upper == true)
+    {
+        triangular = 'U';
+    }
+    else if (lower == true)
+    {
+        triangular = 'L';
     }
 
     return triangular;
@@ -390,22 +682,133 @@ void CSR_transpose(CSRMatrix *A)
     }
 
     // Initialize row_ptr to 0
-    for (int i = 0; i <= A->num_rows; i++) {
+    for (int i = 0; i <= A->num_rows; i++)
+    {
         A->row_ptr[i] = 0;
     }
 
     // Count the number of non-zero elements in each row
-    for (int i = 0; i < A->num_non_zeros; i++) {
+    for (int i = 0; i < A->num_non_zeros; i++)
+    {
         A->row_ptr[elements[i].row + 1]++;
     }
 
     // Calculate the cumulative sum for row_ptr
-    for (int i = 0; i < A->num_rows; i++) {
+    for (int i = 0; i < A->num_rows; i++)
+    {
         A->row_ptr[i + 1] += A->row_ptr[i];
     }
 
     // free the temporary array
     free(elements);
+}
+
+// this function swaps two rows of a CSRMatrix
+void CSR_row_swap(CSRMatrix *A, int row1, int row2)
+{
+    // create temporary arrays
+    double *temp_csr_data = (double *)malloc(A->num_non_zeros * sizeof(double));
+    int *temp_col_ind = (int *)malloc(A->num_non_zeros * sizeof(int));
+    int *temp_row_ptr = (int *)malloc((A->num_rows + 1) * sizeof(int));
+
+    // check if memory allocation was successful
+    if (temp_csr_data == NULL || temp_col_ind == NULL || temp_row_ptr == NULL)
+    {
+        printf("Error: memory allocation failed\n");
+        return;
+    }
+
+    // fill temporary arrays with zeros
+    for (int i = 0; i < A->num_non_zeros; i++)
+    {
+        temp_csr_data[i] = 0.0;
+        temp_col_ind[i] = 0;
+    }
+
+    for (int i = 0; i < A->num_rows + 1; i++)
+    {
+        temp_row_ptr[i] = 0;
+    }
+
+    // copy data from A into temporary arrays until we hit row1
+    int temp_csr_index = 0;
+    int temp_row_ptr_index = 0;
+    while (temp_row_ptr_index < row1)
+    {
+        for (int i = A->row_ptr[temp_row_ptr_index]; i < A->row_ptr[temp_row_ptr_index + 1]; i++)
+        {
+            temp_csr_data[temp_csr_index] = A->csr_data[i];
+            temp_col_ind[temp_csr_index] = A->col_ind[i];
+            temp_csr_index++;
+        }
+        temp_row_ptr[temp_row_ptr_index + 1] = temp_csr_index;
+        temp_row_ptr_index++;
+    }
+
+    // copy the data from row2 into the spot where row1 was
+    for (int i = A->row_ptr[row2]; i < A->row_ptr[row2 + 1]; i++)
+    {
+        temp_csr_data[temp_csr_index] = A->csr_data[i];
+        temp_col_ind[temp_csr_index] = A->col_ind[i];
+        temp_csr_index++;
+    }
+
+    temp_row_ptr[temp_row_ptr_index + 1] = temp_csr_index;
+    temp_row_ptr_index++;
+
+    // copy the data from A into temporary arrays until we hit row2
+    while (temp_row_ptr_index < row2)
+    {
+        for (int i = A->row_ptr[temp_row_ptr_index]; i < A->row_ptr[temp_row_ptr_index + 1]; i++)
+        {
+            temp_csr_data[temp_csr_index] = A->csr_data[i];
+            temp_col_ind[temp_csr_index] = A->col_ind[i];
+            temp_csr_index++;
+        }
+        temp_row_ptr[temp_row_ptr_index + 1] = temp_csr_index;
+        temp_row_ptr_index++;
+    }
+
+    // copy the data from row1 into the spot where row2 was
+    for (int i = A->row_ptr[row1]; i < A->row_ptr[row1 + 1]; i++)
+    {
+        temp_csr_data[temp_csr_index] = A->csr_data[i];
+        temp_col_ind[temp_csr_index] = A->col_ind[i];
+        temp_csr_index++;
+    }
+
+    temp_row_ptr[temp_row_ptr_index + 1] = temp_csr_index;
+    temp_row_ptr_index++;
+
+    // copy the data from A into temporary arrays until we hit the end
+    while (temp_row_ptr_index < A->num_rows)
+    {
+        for (int i = A->row_ptr[temp_row_ptr_index]; i < A->row_ptr[temp_row_ptr_index + 1]; i++)
+        {
+            temp_csr_data[temp_csr_index] = A->csr_data[i];
+            temp_col_ind[temp_csr_index] = A->col_ind[i];
+            temp_csr_index++;
+        }
+        temp_row_ptr[temp_row_ptr_index + 1] = temp_csr_index;
+        temp_row_ptr_index++;
+    }
+
+    // copy the data from temporary arrays into A
+    for (int i = 0; i < A->num_non_zeros; i++)
+    {
+        A->csr_data[i] = temp_csr_data[i];
+        A->col_ind[i] = temp_col_ind[i];
+    }
+
+    for (int i = 0; i < A->num_rows + 1; i++)
+    {
+        A->row_ptr[i] = temp_row_ptr[i];
+    }
+
+    // free temporary arrays
+    free(temp_csr_data);
+    free(temp_col_ind);
+    free(temp_row_ptr);
 }
 
 // --- end of matrix specific functions ---
