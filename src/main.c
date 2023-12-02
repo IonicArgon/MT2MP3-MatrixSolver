@@ -82,10 +82,50 @@ int main(int argc, char **argv)
         return 1;
     }
 
+    // print out program information
+    printf("Running with the following parameters:\n");
+    printf("\t- filename: %s\n", filename);
+    printf("\t- num_iterations: %d\n", num_iterations);
+    printf("\t- method: ");
+    if (method == 'j')
+    {
+        printf("Jacobi method\n");
+    }
+    else
+    {
+        printf("Gauss-Seidel method\n");
+    }
+    printf("\t- preconditioner: ");
+    if (preconditioner == 0)
+    {
+        printf("None\n");
+    }
+    else
+    {
+        printf("Jacobi preconditioning\n\n");
+    }
+
     // read matrix from file
     CSRMatrix *A = (CSRMatrix *)malloc(sizeof(CSRMatrix));
     ReadMMtoCSR(filename, A);
-    // raw_print_CSRMatrix(A);
+
+#if defined(PRINT)
+    printf("Note: You should recompile this without the PRINT flag for large matrices.\n");
+
+    if (PRINT == 2)
+    {
+        print_CSRMatrix(A);
+    }
+    else if (PRINT == 1)
+    {
+        raw_print_CSRMatrix(A);
+    }
+    else
+    {
+        raw_print_CSRMatrix(A);
+    }
+
+#endif
 
     // set up b and x for jacobi method
     double *b = (double *)malloc(sizeof(double) * A->num_rows);
@@ -97,14 +137,13 @@ int main(int argc, char **argv)
     }
 
     // solve the linear system
+    printf("Solving linear system...\n");
     if (method == 'j')
     {
-        printf("Solving with Jacobi Method...\n");
         solver_iter_jacobi(A, b, x, num_iterations, (bool)preconditioner);
     }
     else
     {
-        printf("Solving with Gauss-Seidel Method...\n");
         solver_iter_gauss_seidel(A, b, x, num_iterations, (bool)preconditioner);
     }
 
@@ -112,19 +151,21 @@ int main(int argc, char **argv)
     double residual = compute_residual(A, b, x);
 
     // print result and residual
-    if (method == 'j')
-    {
-        printf("Jacobi Method:\n");
-    }
-    else
-    {
-        printf("Gauss-Seidel Method:\n");
-    }
-
-    printf("\t- residual: %e\n", residual);
+    printf("Result:\n");
+    printf("\t- Residual: %e\n", residual);
 
     // export solution to file
+#if defined(PRINT)
+    printf("\t- Solution of x: \n");
+    for (int i = 0; i < A->num_rows; i++)
+    {
+        printf("\t\t %f\n", x[i]);
+    }
+    printf("\n");
+#else
+    printf("Exporting solution to file...\n");
     export_solution("solution.txt", x, A->num_rows);
+#endif
 
     // clean up
     free_CSRMatrix(A);
