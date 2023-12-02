@@ -6,7 +6,7 @@ DFLAGS=-Wall -Wextra -W -g -O0 -lm
 
 FLAGSGaussSeidel= -DGAUSS_SEIDEL -DITERATIONS=100 -DPRECONDITIONING
 FLAGSJacobi= -DJACOBI -DITERATIONS=100 -DPRECONDITIONING
-FLAGSPrint= -DPRINT=2
+FLAGSPrint= -DPRINT=1
 
 # change the flag as you wish
 # FLAGSGaussSeidel is the default
