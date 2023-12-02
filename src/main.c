@@ -130,6 +130,7 @@ int main(int argc, char **argv)
     free_CSRMatrix(A);
     free(b);
     free(x);
+    free(A);
 
     return 0;
 }

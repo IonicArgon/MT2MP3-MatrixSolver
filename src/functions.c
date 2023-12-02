@@ -37,7 +37,7 @@ void ReadMMtoCSR(const char *filename, CSRMatrix *matrix)
     char line[256];
     do
     {
-        fgets(line, sizeof(line), file);
+        char *throwaway = fgets(line, sizeof(line), file);
     } while (line[0] == '%');
 
     // the first line after that is the matrix size
@@ -469,6 +469,9 @@ void solver_iter_jacobi(CSRMatrix *A, double *b, double *x, int max_iter, bool r
             x[i] = (b[i] - sum) / diag[i];
         }
     }
+
+    // free the diagonal array
+    free(diag);
 }
 
 // Gauss-Seidel method solver
@@ -539,10 +542,10 @@ void solver_iter_gauss_seidel(CSRMatrix *A, double *b, double *x, int max_iter, 
             x[i] = (b[i] - s1 - s2) / diag[i];
         }
     }
-}
 
-// Generalized Minimal Residual method solver
-//todo: make this work
+    // free the diagonal array
+    free(diag);
+}
 
 // --- end of solvers ---
 
