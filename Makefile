@@ -27,3 +27,4 @@ $(BDIR)/main: $(OBJ)
 clean:
 	rm -f $(ODIR)/*.o $(BDIR)/main
 	rm solution.txt
+	rm -rf ./r000hs/

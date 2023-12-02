@@ -121,7 +121,7 @@ int main(int argc, char **argv)
         printf("Gauss-Seidel Method:\n");
     }
 
-    printf("\t- residual: %f\n", residual);
+    printf("\t- residual: %e\n", residual);
 
     // export solution to file
     export_solution("solution.txt", x, A->num_rows);
