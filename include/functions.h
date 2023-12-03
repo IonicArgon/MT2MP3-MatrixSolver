@@ -42,7 +42,8 @@ double compute_residual(CSRMatrix *A, const double *b, const double *x);
 
 // solving stuff
 void preconditioner_jacobi_gauss(CSRMatrix *A, double *diagonal);
-void solver_iter_jacobi(CSRMatrix *A, const double *b, double *x, const int max_iter, bool precondition);
+void solver_iter_jacobi(CSRMatrix *A, const double *b, double *x, const int max_iter, double threshold, bool precondition);
+#void solver_iter_gauss_seidel(CSRMatrix *A, const double *b, double *x, const int max_iter, double threshold, bool precondition);
 
 // matrix specific functions
 void CSR_raw_print(const CSRMatrix *A);

@@ -358,7 +358,169 @@ void preconditioner_jacobi_gauss(CSRMatrix *A, double *diag)
 }
 
 // jacobi method solver
-void solver_iter_jacobi(CSRMatrix *A, const double *b, double *x, const int max_iter, bool precondition)
+void solver_iter_jacobi(CSRMatrix *A, const double *b, double *x, const int max_iter, double threshold, bool precondition)
+{
+    // create a vector to store the diagonal elements of A
+    double *diagonal = (double *)malloc(A->num_rows * sizeof(double));
+
+    // check if memory allocation was successful
+    if (diagonal == NULL)
+    {
+        printf("Error: memory allocation failed\n");
+        return;
+    }
+
+    // fill the vector with the diagonal elements of A
+    for (int i = 0; i < A->num_rows; i++)
+    {
+        for (int j = A->row_ptr[i]; j < A->row_ptr[i + 1]; j++)
+        {
+            if (A->col_ind[j] == i)
+            {
+                diagonal[i] = A->csr_data[j];
+            }
+        }
+    }
+
+    // check if we need to use a preconditioner
+    if (precondition == true)
+    {
+        printf("Warning: preconditioning is enabled. The original matrix will not be preserved.\n");
+        preconditioner_jacobi_gauss(A, diagonal);
+        printf("Preconditioning complete.\n");
+    }
+
+    // check if the diagonal elements of A are all non-zero
+    for (int i = 0; i < A->num_rows; i++)
+    {
+        if (diagonal[i] == 0.0)
+        {
+            printf("Error: Matrix is singular and therefore cannot be solved.\n");
+            return;
+        }
+    }
+
+    // initialize x to 0
+    for (int i = 0; i < A->num_cols; i++)
+    {
+        x[i] = 0.0;
+    }
+
+    // check the kind of matrix we're dealing with
+    char triangular = CSR_triangular_test(A);
+
+    // if it's non triangular or upper triangular, we can just do a normal jacobi iteration
+    if (triangular == 'N' || triangular == 'U')
+    {
+        for (int iter = 0; iter < max_iter; iter++)
+        {
+            for (int i = 0; i < A->num_rows; i++)
+            {
+                double s = 0.0;
+
+                for (int j = A->row_ptr[i]; j < A->row_ptr[i + 1]; j++)
+                {
+                    if (A->col_ind[j] != i)
+                    {
+                        s += A->csr_data[j] * x[A->col_ind[j]];
+                    }
+                }
+
+                x[i] = (b[i] - s) / diagonal[i];
+            }
+        }
+    }
+
+    // if it's lower triangular, the matrix is symmetric, skew, or hermitian
+    // we have iterate but take into account both halfs of the matrix (reflection across x axis)
+    else if (triangular == 'L')
+    {
+        // precompute A^T
+        CSRMatrix *A_transpose = (CSRMatrix *)malloc(sizeof(CSRMatrix));
+
+        // check if memory allocation was successful
+        if (A_transpose == NULL)
+        {
+            printf("Error: memory allocation failed\n");
+            return;
+        }
+
+        // copy A over to A^T
+        A_transpose->num_rows = A->num_rows;
+        A_transpose->num_cols = A->num_cols;
+        A_transpose->num_non_zeros = A->num_non_zeros;
+
+        A_transpose->csr_data = (double *)malloc(A_transpose->num_non_zeros * sizeof(double));
+        A_transpose->col_ind = (int *)malloc(A_transpose->num_non_zeros * sizeof(int));
+        A_transpose->row_ptr = (int *)malloc((A_transpose->num_rows + 1) * sizeof(int));
+
+        // check if memory allocation was successful
+        if (A_transpose->csr_data == NULL || A_transpose->col_ind == NULL || A_transpose->row_ptr == NULL)
+        {
+            printf("Error: memory allocation failed\n");
+            return;
+        }
+
+        // now copy over the data
+        memcpy(A_transpose->csr_data, A->csr_data, A_transpose->num_non_zeros * sizeof(double));
+        memcpy(A_transpose->col_ind, A->col_ind, A_transpose->num_non_zeros * sizeof(int));
+        memcpy(A_transpose->row_ptr, A->row_ptr, (A_transpose->num_rows + 1) * sizeof(int));
+
+        // transpose A^T
+        CSR_transpose(A_transpose);
+
+        for (int iter = 0; iter < max_iter; iter++)
+        {
+            for (int i = 0; i < A->num_rows; i++)
+            {
+                double s = 0.0;
+
+                for (int j = A->row_ptr[i]; j < A->row_ptr[i + 1]; j++)
+                {
+                    if (A->col_ind[j] != i)
+                    {
+                        s += A->csr_data[j] * x[A->col_ind[j]];
+                    }
+                }
+
+                // same for transpose
+                for (int j = A_transpose->row_ptr[i]; j < A_transpose->row_ptr[i + 1]; j++)
+                {
+                    if (A_transpose->col_ind[j] != i)
+                    {
+                        s += A_transpose->csr_data[j] * x[A_transpose->col_ind[j]];
+                    }
+                }
+
+                x[i] = (b[i] - s) / diagonal[i];
+            }
+
+            // check if we've reached the threshold
+            if (compute_residual(A, b, x) < threshold)
+            {
+                printf("\nResidual reached threshold. Stopping iterations.\n");
+                break;
+            }
+
+            printf("\rIteration: %d", iter);
+            fflush(stdout);
+        }
+
+        // free A^T
+        CSR_free(A_transpose);
+        free(A_transpose);
+    }
+
+    // free the diagonal vector
+    free(diagonal);
+
+    printf("Solver complete.\n");
+    printf("\n");
+}
+
+/*
+// gauss-seidel method solver
+void solver_iter_gauss_seidel(CSRMatrix *A, const double *b, double *x, const int max_iter, double threshold, bool precondition)
 {
     // create a vector to store the diagonal elements of A
     double *diagonal = (double *)malloc(A->num_rows * sizeof(double));
@@ -409,25 +571,33 @@ void solver_iter_jacobi(CSRMatrix *A, const double *b, double *x, const int max_
     char triangular = CSR_triangular_test(A);
 
     // iterate and compute x
-    // if it's non triangular or upper triangular, we can just do a normal jacobi iteration
+    // if it's non triangular or upper triangular, we can just do a normal gauss-seidel iteration
     if (triangular == 'N' || triangular == 'U')
     {
         for (int iter = 0; iter < max_iter; iter++)
         {
             for (int i = 0; i < A->num_rows; i++)
             {
-                double sum = 0.0;
+                double s1 = 0.0;
+                double s2 = 0.0;
+
                 for (int j = A->row_ptr[i]; j < A->row_ptr[i + 1]; j++)
                 {
-                    if (A->col_ind[j] != i)
+                    if (A->col_ind[j] < i)
                     {
-                        sum += A->csr_data[j] * x[A->col_ind[j]];
+                        s1 += A->csr_data[j] * x[A->col_ind[j]];
+                    }
+                    else if (A->col_ind[j] > i)
+                    {
+                        s2 += A->csr_data[j] * x[A->col_ind[j]];
                     }
                 }
-                x[i] = (b[i] - sum) / diagonal[i];
+
+                x[i] = (b[i] - s1 - s2) / diagonal[i];
             }
         }
     }
+
     // if it's lower triangular, the matrix is symmetric, skew, or hermitian
     // we have iterate but take into account both halfs of the matrix (reflection across x axis)
     else if (triangular == 'L')
@@ -436,25 +606,36 @@ void solver_iter_jacobi(CSRMatrix *A, const double *b, double *x, const int max_
         {
             for (int i = 0; i < A->num_rows; i++)
             {
-                double sum = 0.0;
+                double s1 = 0.0;
+                double s2 = 0.0;
+
                 for (int j = A->row_ptr[i]; j < A->row_ptr[i + 1]; j++)
                 {
-                    if (A->col_ind[j] != i)
+                    if (A->col_ind[j] < i)
                     {
-                        sum += A->csr_data[j] * x[A->col_ind[j]];
+                        s1 += A->csr_data[j] * x[A->col_ind[j]];
+                    }
+                    else if (A->col_ind[j] > i)
+                    {
+                        s2 += A->csr_data[j] * x[A->col_ind[j]];
                     }
                 }
+
                 CSR_transpose(A);
                 for (int j = A->row_ptr[i]; j < A->row_ptr[i + 1]; j++)
                 {
-                    if (A->col_ind[j] != i)
+                    if (A->col_ind[j] < i)
                     {
-                        sum += A->csr_data[j] * x[A->col_ind[j]];
+                        s1 += A->csr_data[j] * x[A->col_ind[j]];
+                    }
+                    else if (A->col_ind[j] > i)
+                    {
+                        s2 += A->csr_data[j] * x[A->col_ind[j]];
                     }
                 }
                 CSR_transpose(A);
 
-                x[i] = (b[i] - sum) / diagonal[i];
+                x[i] = (b[i] - s1 - s2) / diagonal[i];
             }
         }
     }
@@ -462,6 +643,7 @@ void solver_iter_jacobi(CSRMatrix *A, const double *b, double *x, const int max_
     // free the diagonal vector
     free(diagonal);
 }
+*/
 
 // --- matrix specific functions ---
 
