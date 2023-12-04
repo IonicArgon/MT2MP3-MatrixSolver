@@ -423,6 +423,18 @@ void solver_iter_jacobi(CSRMatrix *A, const double *b, double *x, const int max_
 
                 x[i] = (b[i] - s) / diagonal[i];
             }
+
+            // check if we've reached the threshold
+            double residual = compute_residual(A, b, x);
+            if (compute_residual(A, b, x) < threshold)
+            {
+                printf("\nResidual reached threshold. Stopping iterations.");
+                break;
+            }
+
+            printf("\rIteration: %d", iter);
+            printf(" | Residual: %.12lf", residual);
+            fflush(stdout);
         }
     }
 
@@ -491,6 +503,7 @@ void solver_iter_jacobi(CSRMatrix *A, const double *b, double *x, const int max_
             }
 
             // check if we've reached the threshold
+            double residual = compute_residual(A, b, x);
             if (compute_residual(A, b, x) < threshold)
             {
                 printf("\nResidual reached threshold. Stopping iterations.");
@@ -498,6 +511,7 @@ void solver_iter_jacobi(CSRMatrix *A, const double *b, double *x, const int max_
             }
 
             printf("\rIteration: %d", iter);
+            printf(" | Residual: %.12lf", residual);
             fflush(stdout);
         }
 
@@ -1058,10 +1072,10 @@ bool CSR_strictly_diagonally_dominant(const CSRMatrix *A)
         // transpose A^T
         CSR_transpose(A_transpose);
 
-        // check for the lower triangular part first
+        double sum = 0.0;
         for (int i = 0; i < A->num_rows; i++)
         {
-            double sum = 0.0;
+            // sum the lower triangular part
             for (int j = A->row_ptr[i]; j < A->row_ptr[i + 1]; j++)
             {
                 if (A->col_ind[j] != i)
@@ -1069,16 +1083,8 @@ bool CSR_strictly_diagonally_dominant(const CSRMatrix *A)
                     sum += fabs(A->csr_data[j]);
                 }
             }
-            if (fabs(A->csr_data[A->row_ptr[i] + i]) <= sum)
-            {
-                return false;
-            }
-        }
 
-        // now check for the upper triangular part
-        for (int i = 0; i < A_transpose->num_rows; i++)
-        {
-            double sum = 0.0;
+            // sum the upper triangular part
             for (int j = A_transpose->row_ptr[i]; j < A_transpose->row_ptr[i + 1]; j++)
             {
                 if (A_transpose->col_ind[j] != i)
@@ -1086,7 +1092,9 @@ bool CSR_strictly_diagonally_dominant(const CSRMatrix *A)
                     sum += fabs(A_transpose->csr_data[j]);
                 }
             }
-            if (fabs(A_transpose->csr_data[A_transpose->row_ptr[i] + i]) <= sum)
+
+            // now check
+            if (fabs(A->csr_data[A->row_ptr[i] + i]) <= sum)
             {
                 return false;
             }
