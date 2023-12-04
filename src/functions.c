@@ -994,4 +994,110 @@ void CSR_row_swap(CSRMatrix *A, int row1, int row2)
     free(temp_row_ptr);
 }
 
+// check if a matrix is strictly diagonally dominant
+bool CSR_strictly_diagonally_dominant(const CSRMatrix *A)
+{
+    // check if the matrix is triangular
+    char triangular = CSR_triangular_test(A);
+
+    // if it's not triangular or is upper triangular, we can just do a normal check
+    if (triangular == 'N' || triangular == 'U')
+    {
+        for (int i = 0; i < A->num_rows; i++)
+        {
+            double sum = 0.0;
+            for (int j = A->row_ptr[i]; j < A->row_ptr[i + 1]; j++)
+            {
+                if (A->col_ind[j] != i)
+                {
+                    sum += fabs(A->csr_data[j]);
+                }
+            }
+            if (fabs(A->csr_data[A->row_ptr[i] + i]) <= sum)
+            {
+                return false;
+            }
+        }
+    }
+
+    // if it's lower triangular, the matrix is symmetric, skew, or hermitian
+    // so we also need the transpose
+    if (triangular == 'L')
+    {
+        // precompute A^T
+        CSRMatrix *A_transpose = (CSRMatrix *)malloc(sizeof(CSRMatrix));
+
+        // check if memory allocation was successful
+        if (A_transpose == NULL)
+        {
+            printf("Error: memory allocation failed\n");
+            return false;
+        }
+
+        // copy A over to A^T
+        A_transpose->num_rows = A->num_rows;
+        A_transpose->num_cols = A->num_cols;
+        A_transpose->num_non_zeros = A->num_non_zeros;
+
+        A_transpose->csr_data = (double *)malloc(A_transpose->num_non_zeros * sizeof(double));
+        A_transpose->col_ind = (int *)malloc(A_transpose->num_non_zeros * sizeof(int));
+        A_transpose->row_ptr = (int *)malloc((A_transpose->num_rows + 1) * sizeof(int));
+
+        // check if memory allocation was successful
+        if (A_transpose->csr_data == NULL || A_transpose->col_ind == NULL || A_transpose->row_ptr == NULL)
+        {
+            printf("Error: memory allocation failed\n");
+            return false;
+        }
+
+        // now copy over the data
+        memcpy(A_transpose->csr_data, A->csr_data, A_transpose->num_non_zeros * sizeof(double));
+        memcpy(A_transpose->col_ind, A->col_ind, A_transpose->num_non_zeros * sizeof(int));
+        memcpy(A_transpose->row_ptr, A->row_ptr, (A_transpose->num_rows + 1) * sizeof(int));
+
+        // transpose A^T
+        CSR_transpose(A_transpose);
+
+        // check for the lower triangular part first
+        for (int i = 0; i < A->num_rows; i++)
+        {
+            double sum = 0.0;
+            for (int j = A->row_ptr[i]; j < A->row_ptr[i + 1]; j++)
+            {
+                if (A->col_ind[j] != i)
+                {
+                    sum += fabs(A->csr_data[j]);
+                }
+            }
+            if (fabs(A->csr_data[A->row_ptr[i] + i]) <= sum)
+            {
+                return false;
+            }
+        }
+
+        // now check for the upper triangular part
+        for (int i = 0; i < A_transpose->num_rows; i++)
+        {
+            double sum = 0.0;
+            for (int j = A_transpose->row_ptr[i]; j < A_transpose->row_ptr[i + 1]; j++)
+            {
+                if (A_transpose->col_ind[j] != i)
+                {
+                    sum += fabs(A_transpose->csr_data[j]);
+                }
+            }
+            if (fabs(A_transpose->csr_data[A_transpose->row_ptr[i] + i]) <= sum)
+            {
+                return false;
+            }
+        }
+
+        // free A^T
+        CSR_free(A_transpose);
+        free(A_transpose);
+    }
+
+    return true;
+}
+
 // --- end of matrix specific functions ---

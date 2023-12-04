@@ -155,6 +155,17 @@ int main(int argc, char const *argv[])
     }
     printf("\n");
 
+    // check if the matrix is strictly diagonally dominant
+    bool sdd = CSR_strictly_diagonally_dominant(A);
+    if (sdd)
+    {
+        printf("The matrix is strictly diagonally dominant\n");
+    }
+    else
+    {
+        printf("The matrix is not strictly diagonally dominant\n");
+    }
+
     // show that the matrix multiplication works with an array of ones
     for (int i = 0; i < A->num_cols; i++)
     {

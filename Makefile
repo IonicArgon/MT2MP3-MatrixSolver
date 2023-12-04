@@ -1,4 +1,3 @@
-
 CC=gcc
 CFLAGS=-lm -Ofast
 DFLAGS=-Wall -Wextra -W -g -O0 -lm

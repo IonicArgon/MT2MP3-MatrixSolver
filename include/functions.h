@@ -53,5 +53,6 @@ void CSR_free(CSRMatrix *A);
 char CSR_triangular_test(const CSRMatrix *A);
 void CSR_transpose(CSRMatrix *A);
 void CSR_row_swap(CSRMatrix *A, int row1, int row2);
+bool CSR_strictly_diagonally_dominant(const CSRMatrix *A);
 
 #endif // FUNCTIONS_H
