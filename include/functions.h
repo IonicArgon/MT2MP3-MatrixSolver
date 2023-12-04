@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <time.h>
 #include <math.h>
+#include <string.h>
 
 // ###########################################################
 // Do not change this part
@@ -43,10 +44,10 @@ double compute_residual(CSRMatrix *A, const double *b, const double *x);
 // solving stuff
 void preconditioner_jacobi_gauss(CSRMatrix *A, double *diagonal);
 void solver_iter_jacobi(CSRMatrix *A, const double *b, double *x, const int max_iter, double threshold, bool precondition);
-#void solver_iter_gauss_seidel(CSRMatrix *A, const double *b, double *x, const int max_iter, double threshold, bool precondition);
+//void solver_iter_gauss_seidel(CSRMatrix *A, const double *b, double *x, const int max_iter, double threshold, bool precondition);
 
 // matrix specific functions
-void CSR_raw_print(const CSRMatrix *A);
+void CSR_raw_print(const CSRMatrix *A, bool print_values);
 void CSR_pretty_print(const CSRMatrix *A);
 void CSR_free(CSRMatrix *A);
 char CSR_triangular_test(const CSRMatrix *A);

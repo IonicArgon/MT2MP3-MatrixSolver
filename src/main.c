@@ -107,6 +107,14 @@ int main(int argc, char const *argv[])
     const char *filename = argv[1];
     CSRMatrix *A = (CSRMatrix *)malloc(sizeof(CSRMatrix));
     ReadMMtoCSR(filename, A);
+    CSR_raw_print(A, false);
+
+    // run python if flag is set
+    #if defined (PYTHON)
+    char command[100];
+    sprintf(command, "python3 ../src/visualize.py %s", filename);
+    system(command);
+    #endif
 
     // create a vector x and b to prepare for solving
     double *x = (double *)malloc(A->num_cols * sizeof(double));
@@ -123,7 +131,7 @@ int main(int argc, char const *argv[])
     #if defined (PRINT)
     if (PRINT == 1)
     {
-        CSR_raw_print(A);
+        CSR_raw_print(A, false);
     }
     else if (PRINT == 2)
     {
@@ -170,7 +178,7 @@ int main(int argc, char const *argv[])
     FILE *fp = fopen("smvp_output.txt", "w");
     for (int i = 0; i < A->num_cols; i++)
     {
-        fprintf(fp, "%f\n", b[i]);
+        fprintf(fp, "%e\n", b[i]);
     }
     fclose(fp);
     #endif
@@ -211,7 +219,7 @@ int main(int argc, char const *argv[])
     fp = fopen("solution.txt", "w");
     for (int i = 0; i < A->num_cols; i++)
     {
-        fprintf(fp, "%f\n", x[i]);
+        fprintf(fp, "%e\n", x[i]);
     }
     fclose(fp);
     #endif

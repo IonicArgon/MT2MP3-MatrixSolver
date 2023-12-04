@@ -1,9 +1,4 @@
 #include "functions.h"
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <time.h>
-#include <math.h>
 
 // --- bare minimum project requirements ---
 
@@ -498,7 +493,7 @@ void solver_iter_jacobi(CSRMatrix *A, const double *b, double *x, const int max_
             // check if we've reached the threshold
             if (compute_residual(A, b, x) < threshold)
             {
-                printf("\nResidual reached threshold. Stopping iterations.\n");
+                printf("\nResidual reached threshold. Stopping iterations.");
                 break;
             }
 
@@ -514,7 +509,7 @@ void solver_iter_jacobi(CSRMatrix *A, const double *b, double *x, const int max_
     // free the diagonal vector
     free(diagonal);
 
-    printf("Solver complete.\n");
+    printf("\nSolver complete.\n");
     printf("\n");
 }
 
@@ -648,12 +643,18 @@ void solver_iter_gauss_seidel(CSRMatrix *A, const double *b, double *x, const in
 // --- matrix specific functions ---
 
 // this function raw prints a CSRMatrix
-void CSR_raw_print(const CSRMatrix *A)
+void CSR_raw_print(const CSRMatrix *A, bool print_values)
 {
     printf("Raw print of CSRMatrix:\n");
     printf("\t- Number of rows: %d\n", A->num_rows);
     printf("\t- Number of columns: %d\n", A->num_cols);
     printf("\t- Number of non-zero elements: %d\n", A->num_non_zeros);
+
+    // if print_values is false, we don't print the values of col_ind and row_ptr
+    if (print_values == false)
+    {
+        return;
+    }
 
     printf("\t- csr_data:\n\t\t");
     for (int i = 0; i < A->num_non_zeros; i++)
