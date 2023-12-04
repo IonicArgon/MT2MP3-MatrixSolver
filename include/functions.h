@@ -2,6 +2,11 @@
 #define FUNCTIONS_H
 
 #include <stdbool.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <time.h>
+#include <math.h>
+#include <string.h>
 
 // ###########################################################
 // Do not change this part
@@ -16,7 +21,7 @@ typedef struct {
 
 
 void ReadMMtoCSR(const char *filename, CSRMatrix *matrix);
-void spmv_csr(const CSRMatrix *A, const double *x, double *y);
+void spmv_csr(CSRMatrix *A, const double *x, double *y);
 
 // ###########################################################
 
@@ -31,23 +36,23 @@ printing the whole vector r might not be a good idea. So
 3. A function called compute_norm to compute the norm of vector residual
 */
 
-// project requirements
-void print_CSRMatrix(const CSRMatrix *A);
-void raw_print_CSRMatrix(const CSRMatrix *A);
-double compute_residual(const CSRMatrix *A, double *b, double *x);
-double compute_norm(double *r, int n);
-
-// extras
+// extra stuff
 bool fuzzy_equals(double a, double b, double epsilon);
+double compute_norm(double *x, int n);
+double compute_residual(CSRMatrix *A, const double *b, const double *x);
 
-// a bunch of csr matrix functions
+// solving stuff
+void preconditioner_jacobi_gauss(CSRMatrix *A, double *diagonal);
+void solver_iter_jacobi(CSRMatrix *A, const double *b, double *x, const int max_iter, double threshold, bool precondition);
+//void solver_iter_gauss_seidel(CSRMatrix *A, const double *b, double *x, const int max_iter, double threshold, bool precondition);
+
+// matrix specific functions
+void CSR_raw_print(const CSRMatrix *A, bool print_values);
+void CSR_pretty_print(const CSRMatrix *A);
+void CSR_free(CSRMatrix *A);
+char CSR_triangular_test(const CSRMatrix *A);
+void CSR_transpose(CSRMatrix *A);
 void CSR_row_swap(CSRMatrix *A, int row1, int row2);
-void free_CSRMatrix(CSRMatrix *A);
-
-// a bunch of solvers
-// jacobi method solver
-void solver_iter_jacobi(CSRMatrix *A, double *b, double *x, int max_iter, bool row_swap);
-// gauss-seidel method solver
-void solver_iter_gauss_seidel(CSRMatrix *A, double *b, double *x, int max_iter, bool row_swap);
+bool CSR_strictly_diagonally_dominant(const CSRMatrix *A);
 
 #endif // FUNCTIONS_H

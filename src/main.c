@@ -1,177 +1,243 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <time.h>
-#include <math.h>
 #include "functions.h"
 
-void export_solution(const char *filename, double *x, int n)
+int main(int argc, char const *argv[])
 {
-    FILE *fp = fopen(filename, "w");
-    if (fp == NULL)
-    {
-        printf("Error opening file!\n");
-        exit(1);
-    }
-
-    for (int i = 0; i < n; i++)
-    {
-        fprintf(fp, "%f\n", x[i]);
-    }
-
-    fclose(fp);
-}
-
-int main(int argc, char **argv)
-{
-    // check for correct number of arguments
+    // check if the user provided the correct number of arguments
     if (argc != 2)
     {
-        printf("Usage: ./main <filename>\n");
+        printf("Usage: %s <matrix market file>\n", argv[0]);
         return 1;
     }
 
-    const char *filename = argv[1];
-
-    // ask for number of iterations and method
-    int num_iterations;
     char method;
-    int preconditioner;
+    int max_iter;
+    int precondition;
+    double threshold;
 
-#ifdef USER_INPUT
-    printf("Enter number of iterations: ");
-    scanf("%d", &num_iterations);
-    printf("Enter method (j for jacobi, g for gauss-seidel): ");
-    scanf(" %c", &method);
-    printf("Enter preconditioner (0 for none, 1 for Jacobi Preconditioning): ");
-    scanf("%d", &preconditioner);
-#else
+#if defined (USER_INPUT)
+    // get the method from the user
+    printf("Please select a method:\n");
+    printf("\t1. Jacobi (j)\n");
+    printf("\t2. Gauss-Seidel (g)\n");
+    scanf("%c", &method);
 
-#if defined(ITERATIONS)
-    num_iterations = ITERATIONS;
-#else
-    num_iterations = 100;
-#endif
+    // get the maximum number of iterations from the user
+    printf("Please enter the maximum number of iterations:\n");
+    scanf("%d", &max_iter);
 
-#if defined(JACOBI)
-    method = 'j';
-#elif defined(GAUSS_SEIDEL)
-    method = 'g';
-#else
-    method = 'j';
-#endif
+    // get the preconditioner from the user
+    printf("Please select a preconditioner:\n");
+    printf("\t1. None (0)\n");
+    printf("\t2. Jacobi (1)\n");
+    scanf("%d", &precondition);
 
-#if defined(PRECONDITIONING)
-    preconditioner = 1;
-#else
-    preconditioner = 0;
-#endif
-
-#endif
-
-    // validate method
+    // check if the user entered a valid method
     if (method != 'j' && method != 'g')
     {
         printf("Invalid method\n");
         return 1;
     }
 
-    // validate preconditioner
-    if (preconditioner != 0 && preconditioner != 1)
+    // check if the user entered a valid preconditioner
+    if (precondition != 0 && precondition != 1)
     {
         printf("Invalid preconditioner\n");
         return 1;
     }
 
-    // print out program information
-    printf("Running with the following parameters:\n");
-    printf("\t- filename: %s\n", filename);
-    printf("\t- num_iterations: %d\n", num_iterations);
-    printf("\t- method: ");
+    // check if the user entered a valid maximum number of iterations
+    if (max_iter < 1)
+    {
+        printf("Invalid maximum number of iterations\n");
+        return 1;
+    }
+#else
+    // set the method based on defined constants at compile time
+    #if defined (JACOBI)
+        method = 'j';
+    #elif defined (GAUSS_SEIDEL)
+        method = 'g';
+    #endif
+
+    // set the maximum number of iterations based on defined constants at compile time
+    #if defined (MAX_ITER)
+        max_iter = MAX_ITER;
+    #endif
+
+    // set the threshold based on defined constants at compile time
+    #if defined (THRESHOLD)
+        threshold = THRESHOLD;
+    #endif
+
+    // set the preconditioner based on defined constants at compile time
+    #if defined (PRECONDITIONING)
+        precondition = 1;
+    #else
+        precondition = 0;
+    #endif
+#endif
+
+    // print program information
+    printf("Method: ");
     if (method == 'j')
     {
-        printf("Jacobi method\n");
+        printf("Jacobi\n");
     }
-    else
+    else if (method == 'g')
     {
-        printf("Gauss-Seidel method\n");
+        printf("Gauss-Seidel\n");
     }
-    printf("\t- preconditioner: ");
-    if (preconditioner == 0)
+
+    printf("Number of iterations: %d\n", max_iter);
+    printf("Threshold: %e\n", threshold);
+
+    printf("Preconditioner: ");
+    if (precondition == 0)
     {
         printf("None\n");
     }
-    else
+    else if (precondition == 1)
     {
-        printf("Jacobi preconditioning\n\n");
+        printf("Jacobi\n");
     }
+    printf("\n");
 
-    // read matrix from file
+
+    // create a CSRMatrix
+    const char *filename = argv[1];
     CSRMatrix *A = (CSRMatrix *)malloc(sizeof(CSRMatrix));
     ReadMMtoCSR(filename, A);
+    CSR_raw_print(A, false);
 
-#if defined(PRINT)
-    printf("Note: You should recompile this without the PRINT flag for large matrices.\n");
+    // run python if flag is set
+    #if defined (PYTHON)
+    char command[100];
+    sprintf(command, "python3 ../src/visualize.py %s", filename);
+    system(command);
+    #endif
 
-    if (PRINT == 2)
+    // create a vector x and b to prepare for solving
+    double *x = (double *)malloc(A->num_cols * sizeof(double));
+    double *b = (double *)malloc(A->num_cols * sizeof(double));
+
+    // initialize x and b
+    for (int i = 0; i < A->num_cols; i++)
     {
-        print_CSRMatrix(A);
+        x[i] = 0.0;
+        b[i] = 0.0;
     }
-    else if (PRINT == 1)
+
+    // print the matrix based on compile time constants
+    #if defined (PRINT)
+    if (PRINT == 1)
     {
-        raw_print_CSRMatrix(A);
+        CSR_raw_print(A, false);
+    }
+    else if (PRINT == 2)
+    {
+        CSR_pretty_print(A);
+    }
+    #endif
+
+    // check if the matrix is triangular
+    char triangular = CSR_triangular_test(A);
+    if (triangular == 'N')
+    {
+        printf("The matrix is not triangular\n");
+    }
+    else if (triangular == 'L')
+    {
+        printf("The matrix is lower triangular\n");
+    }
+    else if (triangular == 'U')
+    {
+        printf("The matrix is upper triangular\n");
+    }
+    printf("\n");
+
+    // check if the matrix is strictly diagonally dominant
+    bool sdd = CSR_strictly_diagonally_dominant(A);
+    if (sdd)
+    {
+        printf("The matrix is strictly diagonally dominant\n");
     }
     else
     {
-        raw_print_CSRMatrix(A);
+        printf("The matrix is not strictly diagonally dominant\n");
     }
 
-#endif
-
-    // set up b and x for jacobi method
-    double *b = (double *)malloc(sizeof(double) * A->num_rows);
-    double *x = (double *)malloc(sizeof(double) * A->num_rows);
-    for (int i = 0; i < A->num_rows; i++)
+    // show that the matrix multiplication works with an array of ones
+    for (int i = 0; i < A->num_cols; i++)
     {
-        b[i] = 1.0;
-        x[i] = 0.0;
+        x[i] = 1.0;
     }
 
-    // solve the linear system
-    printf("Solving linear system...\n");
+    // compute the matrix-vector product
+    spmv_csr(A, x, b);
+
+    // print the result if PRINT is defined
+    #if defined (PRINT)
+    printf("\nMatrix-vector product:\n");
+    for (int i = 0; i < A->num_cols; i++)
+    {
+        printf("\t%f\n", b[i]);
+    }
+    printf("\n");
+    
+    // otherwise, write the result to a file
+    #else
+    FILE *fp = fopen("smvp_output.txt", "w");
+    for (int i = 0; i < A->num_cols; i++)
+    {
+        fprintf(fp, "%e\n", b[i]);
+    }
+    fclose(fp);
+    #endif
+
+    // reset x and b
+    for (int i = 0; i < A->num_cols; i++)
+    {
+        x[i] = 0.0;
+        b[i] = 1.0;
+    }
+
+    // solve the system
+    printf("Solving the system...\n");
     if (method == 'j')
     {
-        solver_iter_jacobi(A, b, x, num_iterations, (bool)preconditioner);
+        solver_iter_jacobi(A, b, x, max_iter, threshold, precondition);
     }
-    else
+    else if (method == 'g')
     {
-        solver_iter_gauss_seidel(A, b, x, num_iterations, (bool)preconditioner);
+        printf("Gauss-Seidel is not implemented yet\n");
+        //solver_iter_gauss_seidel(A, b, x, max_iter, threshold, precondition);
     }
 
     // compute the residual
     double residual = compute_residual(A, b, x);
+    printf("\nResidual: %e\n", residual);
 
-    // print result and residual
-    printf("Result:\n");
-    printf("\t- Residual: %e\n", residual);
-
-    // export solution to file
-#if defined(PRINT)
-    printf("\t- Solution of x: \n");
-    for (int i = 0; i < A->num_rows; i++)
+    // print the solution if PRINT is defined
+    #if defined (PRINT)
+    printf("\nSolution:\n");
+    for (int i = 0; i < A->num_cols; i++)
     {
-        printf("\t\t %f\n", x[i]);
+        printf("\t%f\n", x[i]);
     }
-    printf("\n");
-#else
-    printf("Exporting solution to file...\n");
-    export_solution("solution.txt", x, A->num_rows);
-#endif
+
+    // otherwise, write the solution to a file
+    #else
+    fp = fopen("solution.txt", "w");
+    for (int i = 0; i < A->num_cols; i++)
+    {
+        fprintf(fp, "%e\n", x[i]);
+    }
+    fclose(fp);
+    #endif
 
     // clean up
-    free_CSRMatrix(A);
-    free(b);
+    CSR_free(A);
     free(x);
+    free(b);
     free(A);
-
-    return 0;
 }
