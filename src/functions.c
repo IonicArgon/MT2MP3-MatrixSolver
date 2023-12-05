@@ -138,13 +138,10 @@ void ReadMMtoCSR(const char *filename, CSRMatrix *matrix)
 // 1. y1 = A*x (ignoring the diagonal)
 // 2. y2 = A^T*x (ignoring the diagonal)
 // 3. y = y1 + y2 + (diagonal elements of A)*x
-void spmv_csr(CSRMatrix *A, const double *x, double *y)
+void spmv_csr(CSRMatrix *A, CSRMatrix *AT, const double *x, double *y)
 {
-    // first check if the matrix is triangular
-    char triangular = CSR_triangular_test(A);
-
-    // if the matrix is not triangular or is upper triangular, we can just do a normal matrix-vector multiplication
-    if (triangular == 'N' || triangular == 'U')
+    // if AT is NULL, we do a regular matrix-vector multiplication
+    if (AT == NULL)
     {
         for (int i = 0; i < A->num_rows; i++)
         {
@@ -153,46 +150,29 @@ void spmv_csr(CSRMatrix *A, const double *x, double *y)
                 y[i] += A->csr_data[j] * x[A->col_ind[j]];
             }
         }
-        return;
     }
 
-    // lower triangular matrices are defined as symmetric, skew, or hermitian
-    // matrices in MTX format so we calculate using A*x + A^T*x + (diagonal elements of A)*x
-
-    // calculate y1
-    for (int i = 0; i < A->num_rows; i++)
+    // if AT is not NULL, then y = (A_strictly_lower_triangular)*x + AT*x
+    else if (AT != NULL)
     {
-        for (int j = A->row_ptr[i]; j < A->row_ptr[i + 1]; j++)
+        // calculate for the strictly lower triangular part first
+        for (int i = 0; i < A->num_rows; i++)
         {
-            if (A->col_ind[j] != i)
+            for (int j = A->row_ptr[i]; j < A->row_ptr[i + 1]; j++)
             {
-                y[i] += A->csr_data[j] * x[A->col_ind[j]];
+                if (A->col_ind[j] != i)
+                {
+                    y[i] += A->csr_data[j] * x[A->col_ind[j]];
+                }
             }
         }
-    }
 
-    // calculate y2
-    CSR_transpose(A);
-    for (int i = 0; i < A->num_rows; i++)
-    {
-        for (int j = A->row_ptr[i]; j < A->row_ptr[i + 1]; j++)
+        // calculate for the transpose
+        for (int i = 0; i < AT->num_rows; i++)
         {
-            if (A->col_ind[j] != i)
+            for (int j = AT->row_ptr[i]; j < AT->row_ptr[i + 1]; j++)
             {
-                y[i] += A->csr_data[j] * x[A->col_ind[j]];
-            }
-        }
-    }
-    CSR_transpose(A);
-
-    // calculate (diagonal elements of A)*x
-    for (int i = 0; i < A->num_rows; i++)
-    {
-        for (int j = A->row_ptr[i]; j < A->row_ptr[i + 1]; j++)
-        {
-            if (A->col_ind[j] == i)
-            {
-                y[i] += A->csr_data[j] * x[A->col_ind[j]];
+                y[i] += AT->csr_data[j] * x[AT->col_ind[j]];
             }
         }
     }
@@ -220,7 +200,7 @@ double compute_norm(double *x, int n)
 }
 
 // this function computes the residual of a matrix
-double compute_residual(CSRMatrix *A, const double *b, const double *x)
+double compute_residual(CSRMatrix *A, CSRMatrix *AT, const double *b, const double *x)
 {
     // create a vector to store the result of A*x
     double *Ax = (double *)malloc(A->num_cols * sizeof(double));
@@ -239,7 +219,7 @@ double compute_residual(CSRMatrix *A, const double *b, const double *x)
     }
 
     // calculate Ax
-    spmv_csr(A, x, Ax);
+    spmv_csr(A, AT, x, Ax);
 
     // calculate r = Ax - b
     double *r = (double *)malloc(A->num_cols * sizeof(double));
@@ -273,7 +253,7 @@ double compute_residual(CSRMatrix *A, const double *b, const double *x)
 // jacobi preconditioner will check the diagonal elements of A and
 // perform row swaps if necessary to make sure the diagonal elements
 // are non-zero
-void preconditioner_jacobi_gauss(CSRMatrix *A, double *diag)
+void diagonal_checker(CSRMatrix *A, double *diagonal)
 {
     // check for zeros in the diagonal and swap rows if needed
     int swapped_rows[A->num_rows];
@@ -284,7 +264,7 @@ void preconditioner_jacobi_gauss(CSRMatrix *A, double *diag)
 
     for (int i = 0; i < A->num_rows; i++)
     {
-        if (diag[i] == 0.0)
+        if (diagonal[i] == 0.0)
         {
             // find a row that has a value in csr_data in the same column as the zero
             printf("Warning: zero found at row %d and column %d\n", i, i);
@@ -330,7 +310,7 @@ void preconditioner_jacobi_gauss(CSRMatrix *A, double *diag)
                 // update the diagonal array
                 for (int j = 0; j < A->num_rows; j++)
                 {
-                    diag[j] = 0.0;
+                    diagonal[j] = 0.0;
                 }
 
                 for (int j = 0; j < A->num_rows; j++)
@@ -339,7 +319,7 @@ void preconditioner_jacobi_gauss(CSRMatrix *A, double *diag)
                     {
                         if (A->col_ind[k] == j)
                         {
-                            diag[j] = A->csr_data[k];
+                            diagonal[j] = A->csr_data[k];
                         }
                     }
                 }
@@ -353,7 +333,7 @@ void preconditioner_jacobi_gauss(CSRMatrix *A, double *diag)
 }
 
 // jacobi method solver
-void solver_iter_jacobi(CSRMatrix *A, const double *b, double *x, const int max_iter, double threshold, bool precondition)
+void solver_iter_jacobi(CSRMatrix *A, CSRMatrix *AT, double *b, double *x, const int max_iter, double threshold, bool diagonal_check)
 {
     // create a vector to store the diagonal elements of A
     double *diagonal = (double *)malloc(A->num_rows * sizeof(double));
@@ -377,12 +357,12 @@ void solver_iter_jacobi(CSRMatrix *A, const double *b, double *x, const int max_
         }
     }
 
-    // check if we need to use a preconditioner
-    if (precondition == true)
+    // check if we need to do a diagonal check
+    if (diagonal_check == true)
     {
-        printf("Warning: preconditioning is enabled. The original matrix will not be preserved.\n");
-        preconditioner_jacobi_gauss(A, diagonal);
-        printf("Preconditioning complete.\n");
+        printf("Warning: Checking diagonal entries for zeros. The original matrix might not be preserved.\n");
+        diagonal_checker(A, diagonal);
+        printf("Diagonal check complete.\n");
     }
 
     // check if the diagonal elements of A are all non-zero
@@ -401,123 +381,101 @@ void solver_iter_jacobi(CSRMatrix *A, const double *b, double *x, const int max_
         x[i] = 0.0;
     }
 
-    // check the kind of matrix we're dealing with
-    char triangular = CSR_triangular_test(A);
+    // make a copy of x to store the previous iteration
+    double *x_prev = (double *)malloc(A->num_cols * sizeof(double));
 
-    // if it's non triangular or upper triangular, we can just do a normal jacobi iteration
-    if (triangular == 'N' || triangular == 'U')
+    // check if memory allocation was successful
+    if (x_prev == NULL)
     {
-        for (int iter = 0; iter < max_iter; iter++)
+        printf("Error: memory allocation failed\n");
+        return;
+    }
+
+    // if we're not given the transpose, we can just do a normal jacobi iteration
+    if (AT == NULL)
+    {
+        for (int i = 0; i < max_iter; i++)
         {
-            for (int i = 0; i < A->num_rows; i++)
+            // calculate x_prev = x
+            for (int j = 0; j < A->num_cols; j++)
             {
-                double s = 0.0;
-
-                for (int j = A->row_ptr[i]; j < A->row_ptr[i + 1]; j++)
-                {
-                    if (A->col_ind[j] != i)
-                    {
-                        s += A->csr_data[j] * x[A->col_ind[j]];
-                    }
-                }
-
-                x[i] = (b[i] - s) / diagonal[i];
+                x_prev[j] = x[j];
             }
 
-            // check if we've reached the threshold
-            double residual = compute_residual(A, b, x);
-            if (compute_residual(A, b, x) < threshold)
+            // jacobi
+            for (int j = 0; j < A->num_rows; j++)
             {
-                printf("\nResidual reached threshold. Stopping iterations.");
+                double sum = 0.0;
+                for (int k = A->row_ptr[j]; k < A->row_ptr[j + 1]; k++)
+                {
+                    if (A->col_ind[k] != j)
+                    {
+                        sum += A->csr_data[k] * x_prev[A->col_ind[k]];
+                    }
+                }
+                x[j] = (b[j] - sum) / diagonal[j];
+            }
+
+            // check if we've converged
+            double residual = compute_residual(A, AT, b, x);
+            if (residual < threshold)
+            {
+                printf("\nConverged after %d iterations.\n", i + 1);
                 break;
             }
 
-            printf("\rIteration: %d", iter);
-            printf(" | Residual: %.12lf", residual);
+            printf("\rIteration: %d", i + 1);
+            printf(" | Residual: %e", residual);
             fflush(stdout);
         }
     }
 
-    // if it's lower triangular, the matrix is symmetric, skew, or hermitian
-    // we have iterate but take into account both halfs of the matrix (reflection across x axis)
-    else if (triangular == 'L')
+    // otherwise, then we have to consider the tranpose as well
+    else if (AT != NULL)
     {
-        // precompute A^T
-        CSRMatrix *A_transpose = (CSRMatrix *)malloc(sizeof(CSRMatrix));
-
-        // check if memory allocation was successful
-        if (A_transpose == NULL)
+        for (int i = 0; i < max_iter; i++)
         {
-            printf("Error: memory allocation failed\n");
-            return;
-        }
-
-        // copy A over to A^T
-        A_transpose->num_rows = A->num_rows;
-        A_transpose->num_cols = A->num_cols;
-        A_transpose->num_non_zeros = A->num_non_zeros;
-
-        A_transpose->csr_data = (double *)malloc(A_transpose->num_non_zeros * sizeof(double));
-        A_transpose->col_ind = (int *)malloc(A_transpose->num_non_zeros * sizeof(int));
-        A_transpose->row_ptr = (int *)malloc((A_transpose->num_rows + 1) * sizeof(int));
-
-        // check if memory allocation was successful
-        if (A_transpose->csr_data == NULL || A_transpose->col_ind == NULL || A_transpose->row_ptr == NULL)
-        {
-            printf("Error: memory allocation failed\n");
-            return;
-        }
-
-        // now copy over the data
-        memcpy(A_transpose->csr_data, A->csr_data, A_transpose->num_non_zeros * sizeof(double));
-        memcpy(A_transpose->col_ind, A->col_ind, A_transpose->num_non_zeros * sizeof(int));
-        memcpy(A_transpose->row_ptr, A->row_ptr, (A_transpose->num_rows + 1) * sizeof(int));
-
-        // transpose A^T
-        CSR_transpose(A_transpose);
-
-        for (int iter = 0; iter < max_iter; iter++)
-        {
-            for (int i = 0; i < A->num_rows; i++)
+            // calculate x_prev = x
+            for (int j = 0; j < A->num_cols; j++)
             {
-                double s = 0.0;
-
-                for (int j = A->row_ptr[i]; j < A->row_ptr[i + 1]; j++)
-                {
-                    if (A->col_ind[j] != i)
-                    {
-                        s += A->csr_data[j] * x[A->col_ind[j]];
-                    }
-                }
-
-                // same for transpose
-                for (int j = A_transpose->row_ptr[i]; j < A_transpose->row_ptr[i + 1]; j++)
-                {
-                    if (A_transpose->col_ind[j] != i)
-                    {
-                        s += A_transpose->csr_data[j] * x[A_transpose->col_ind[j]];
-                    }
-                }
-
-                x[i] = (b[i] - s) / diagonal[i];
+                x_prev[j] = x[j];
             }
 
-            // check if we've reached the threshold
-            double residual = compute_residual(A, b, x);
-            if (compute_residual(A, b, x) < threshold)
+            // jacobi
+            for (int j = 0; j < A->num_rows; j++)
             {
-                printf("\nResidual reached threshold. Stopping iterations.");
+                double sum = 0.0;
+                for (int k = A->row_ptr[j]; k < A->row_ptr[j + 1]; k++)
+                {
+                    if (A->col_ind[k] != j)
+                    {
+                        sum += A->csr_data[k] * x_prev[A->col_ind[k]];
+                    }
+                }
+
+                for (int k = AT->row_ptr[j]; k < AT->row_ptr[j + 1]; k++)
+                {
+                    if (AT->col_ind[k] != j)
+                    {
+                        sum += AT->csr_data[k] * x_prev[AT->col_ind[k]];
+                    }
+                }
+
+                x[j] = (b[j] - sum) / diagonal[j];
+            }
+
+            // check if we've converged
+            double residual = compute_residual(A, AT, b, x);
+            if (residual < threshold)
+            {
+                printf("\nConverged after %d iterations.\n", i + 1);
                 break;
             }
 
-            printf("\rIteration: %d", iter);
-            printf(" | Residual: %.12lf", residual);
+            printf("\rIteration: %d", i + 1);
+            printf(" | Residual: %e", residual);
             fflush(stdout);
         }
-
-        // free A^T
-        CSR_free(A_transpose);
-        free(A_transpose);
     }
 
     // free the diagonal vector
@@ -527,11 +485,10 @@ void solver_iter_jacobi(CSRMatrix *A, const double *b, double *x, const int max_
     printf("\n");
 }
 
-/*
-// gauss-seidel method solver
-void solver_iter_gauss_seidel(CSRMatrix *A, const double *b, double *x, const int max_iter, double threshold, bool precondition)
+// successive over-relaxation
+void solver_iter_SOR(CSRMatrix *A, CSRMatrix *AT, double *b, double *x, const int max_iter, double threshold, double omega, bool diagonal_check)
 {
-    // create a vector to store the diagonal elements of A
+    // extract our diagonals
     double *diagonal = (double *)malloc(A->num_rows * sizeof(double));
 
     // check if memory allocation was successful
@@ -553,17 +510,12 @@ void solver_iter_gauss_seidel(CSRMatrix *A, const double *b, double *x, const in
         }
     }
 
-    // check if we need to use a preconditioner
-    if (precondition == true)
+    // check if we need to do a diagonal check
+    if (diagonal_check == true)
     {
-        printf("Warning: preconditioning is enabled. The original matrix will not be preserved.\n");
-        preconditioner_jacobi_gauss(A, diagonal);
-    }
-
-    // initialize x to 0
-    for (int i = 0; i < A->num_cols; i++)
-    {
-        x[i] = 0.0;
+        printf("Warning: Checking diagonal entries for zeros. The original matrix might not be preserved.\n");
+        diagonal_checker(A, diagonal);
+        printf("Diagonal check complete.\n");
     }
 
     // check if the diagonal elements of A are all non-zero
@@ -576,83 +528,125 @@ void solver_iter_gauss_seidel(CSRMatrix *A, const double *b, double *x, const in
         }
     }
 
-    // check if the matrix is triangular
-    char triangular = CSR_triangular_test(A);
-
-    // iterate and compute x
-    // if it's non triangular or upper triangular, we can just do a normal gauss-seidel iteration
-    if (triangular == 'N' || triangular == 'U')
+    // initialize x to 0
+    for (int i = 0; i < A->num_cols; i++)
     {
-        for (int iter = 0; iter < max_iter; iter++)
+        x[i] = 0.0;
+    }
+
+    // make a copy of x to store the previous iteration
+    double *x_prev = (double *)malloc(A->num_cols * sizeof(double));
+
+    // check if memory allocation was successful
+    if (x_prev == NULL)
+    {
+        printf("Error: memory allocation failed\n");
+        return;
+    }
+
+    // if we're not given the transpose, we can just do a normal SOR
+    if (AT == NULL)
+    {
+        for (int i = 0; i < max_iter; i++)
         {
-            for (int i = 0; i < A->num_rows; i++)
+            // calculate x_prev = x
+            for (int j = 0; j < A->num_cols; j++)
+            {
+                x_prev[j] = x[j];
+            }
+
+            // SOR
+            for (int j = 0; j < A->num_rows; j++)
             {
                 double s1 = 0.0;
                 double s2 = 0.0;
-
-                for (int j = A->row_ptr[i]; j < A->row_ptr[i + 1]; j++)
+                for (int k = A->row_ptr[j]; k < A->row_ptr[j + 1]; k++)
                 {
-                    if (A->col_ind[j] < i)
+                    if (A->col_ind[k] < j)
                     {
-                        s1 += A->csr_data[j] * x[A->col_ind[j]];
+                        s1 += A->csr_data[k] * x[A->col_ind[k]];
                     }
-                    else if (A->col_ind[j] > i)
+                    else if (A->col_ind[k] > j)
                     {
-                        s2 += A->csr_data[j] * x[A->col_ind[j]];
+                        s2 += A->csr_data[k] * x_prev[A->col_ind[k]];
                     }
                 }
-
-                x[i] = (b[i] - s1 - s2) / diagonal[i];
+                x[j] = (1 - omega) * x_prev[j] + (omega / diagonal[j]) * (b[j] - s1 - s2);
             }
+
+            // check if we've converged
+            double residual = compute_residual(A, AT, b, x);
+            if (residual < threshold)
+            {
+                printf("\nConverged after %d iterations.\n", i + 1);
+                break;
+            }
+
+            printf("\rIteration: %d", i + 1);
+            printf(" | Residual: %e", residual);
+            fflush(stdout);
         }
     }
 
-    // if it's lower triangular, the matrix is symmetric, skew, or hermitian
-    // we have iterate but take into account both halfs of the matrix (reflection across x axis)
-    else if (triangular == 'L')
+    // otherwise if we're given the transpose, we must consider it symmetric
+    else if (AT != NULL)
     {
-        for (int iter = 0; iter < max_iter; iter++)
+        for (int i = 0; i < max_iter; i++)
         {
-            for (int i = 0; i < A->num_rows; i++)
+            // calculate x_prev = x
+            for (int j = 0; j < A->num_cols; j++)
+            {
+                x_prev[j] = x[j];
+            }
+
+            // SOR
+            for (int j = 0; j < A->num_rows; j++)
             {
                 double s1 = 0.0;
                 double s2 = 0.0;
-
-                for (int j = A->row_ptr[i]; j < A->row_ptr[i + 1]; j++)
+                for (int k = A->row_ptr[j]; k < A->row_ptr[j + 1]; k++)
                 {
-                    if (A->col_ind[j] < i)
+                    if (A->col_ind[k] < j)
                     {
-                        s1 += A->csr_data[j] * x[A->col_ind[j]];
+                        s1 += A->csr_data[k] * x[A->col_ind[k]];
                     }
-                    else if (A->col_ind[j] > i)
+                    else if (A->col_ind[k] > j)
                     {
-                        s2 += A->csr_data[j] * x[A->col_ind[j]];
+                        s2 += A->csr_data[k] * x_prev[A->col_ind[k]];
                     }
                 }
 
-                CSR_transpose(A);
-                for (int j = A->row_ptr[i]; j < A->row_ptr[i + 1]; j++)
+                for (int k = AT->row_ptr[j]; k < AT->row_ptr[j + 1]; k++)
                 {
-                    if (A->col_ind[j] < i)
+                    if (AT->col_ind[k] < j)
                     {
-                        s1 += A->csr_data[j] * x[A->col_ind[j]];
+                        s1 += AT->csr_data[k] * x[AT->col_ind[k]];
                     }
-                    else if (A->col_ind[j] > i)
+                    else if (AT->col_ind[k] > j)
                     {
-                        s2 += A->csr_data[j] * x[A->col_ind[j]];
+                        s2 += AT->csr_data[k] * x_prev[AT->col_ind[k]];
                     }
                 }
-                CSR_transpose(A);
 
-                x[i] = (b[i] - s1 - s2) / diagonal[i];
+                x[j] = (1 - omega) * x_prev[j] + (omega / diagonal[j]) * (b[j] - s1 - s2);
             }
+
+            // check if we've converged
+            double residual = compute_residual(A, AT, b, x);
+            if (residual < threshold)
+            {
+                printf("\nConverged after %d iterations.\n", i + 1);
+                break;
+            }
+
+            printf("\rIteration: %d", i + 1);
+            printf(" | Residual: %e", residual);
+            fflush(stdout);
         }
     }
-
-    // free the diagonal vector
-    free(diagonal);
 }
-*/
+
+// -- end of solving stuff --
 
 // --- matrix specific functions ---
 
@@ -1009,13 +1003,10 @@ void CSR_row_swap(CSRMatrix *A, int row1, int row2)
 }
 
 // check if a matrix is strictly diagonally dominant
-bool CSR_strictly_diagonally_dominant(const CSRMatrix *A)
+bool CSR_strictly_diagonally_dominant(const CSRMatrix *A, const CSRMatrix *AT)
 {
-    // check if the matrix is triangular
-    char triangular = CSR_triangular_test(A);
-
-    // if it's not triangular or is upper triangular, we can just do a normal check
-    if (triangular == 'N' || triangular == 'U')
+    // if no AT, we do a regular check
+    if (AT == NULL)
     {
         for (int i = 0; i < A->num_rows; i++)
         {
@@ -1034,44 +1025,9 @@ bool CSR_strictly_diagonally_dominant(const CSRMatrix *A)
         }
     }
 
-    // if it's lower triangular, the matrix is symmetric, skew, or hermitian
-    // so we also need the transpose
-    if (triangular == 'L')
+    // if we're an AT, we have a symmetric matrix
+    else if (AT != NULL)
     {
-        // precompute A^T
-        CSRMatrix *A_transpose = (CSRMatrix *)malloc(sizeof(CSRMatrix));
-
-        // check if memory allocation was successful
-        if (A_transpose == NULL)
-        {
-            printf("Error: memory allocation failed\n");
-            return false;
-        }
-
-        // copy A over to A^T
-        A_transpose->num_rows = A->num_rows;
-        A_transpose->num_cols = A->num_cols;
-        A_transpose->num_non_zeros = A->num_non_zeros;
-
-        A_transpose->csr_data = (double *)malloc(A_transpose->num_non_zeros * sizeof(double));
-        A_transpose->col_ind = (int *)malloc(A_transpose->num_non_zeros * sizeof(int));
-        A_transpose->row_ptr = (int *)malloc((A_transpose->num_rows + 1) * sizeof(int));
-
-        // check if memory allocation was successful
-        if (A_transpose->csr_data == NULL || A_transpose->col_ind == NULL || A_transpose->row_ptr == NULL)
-        {
-            printf("Error: memory allocation failed\n");
-            return false;
-        }
-
-        // now copy over the data
-        memcpy(A_transpose->csr_data, A->csr_data, A_transpose->num_non_zeros * sizeof(double));
-        memcpy(A_transpose->col_ind, A->col_ind, A_transpose->num_non_zeros * sizeof(int));
-        memcpy(A_transpose->row_ptr, A->row_ptr, (A_transpose->num_rows + 1) * sizeof(int));
-
-        // transpose A^T
-        CSR_transpose(A_transpose);
-
         double sum = 0.0;
         for (int i = 0; i < A->num_rows; i++)
         {
@@ -1085,11 +1041,11 @@ bool CSR_strictly_diagonally_dominant(const CSRMatrix *A)
             }
 
             // sum the upper triangular part
-            for (int j = A_transpose->row_ptr[i]; j < A_transpose->row_ptr[i + 1]; j++)
+            for (int j = AT->row_ptr[i]; j < AT->row_ptr[i + 1]; j++)
             {
-                if (A_transpose->col_ind[j] != i)
+                if (AT->col_ind[j] != i)
                 {
-                    sum += fabs(A_transpose->csr_data[j]);
+                    sum += fabs(AT->csr_data[j]);
                 }
             }
 
@@ -1099,10 +1055,6 @@ bool CSR_strictly_diagonally_dominant(const CSRMatrix *A)
                 return false;
             }
         }
-
-        // free A^T
-        CSR_free(A_transpose);
-        free(A_transpose);
     }
 
     return true;
