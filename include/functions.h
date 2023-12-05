@@ -44,7 +44,7 @@ double compute_residual(CSRMatrix *A, CSRMatrix *AT, const double *b, const doub
 // solving stuff
 void diagonal_checker(CSRMatrix *A, double *diagonal);
 void solver_iter_jacobi(CSRMatrix *A, CSRMatrix *AT, double *b, double *x, const int max_iter, double threshold, bool diagonal_check);
-//void solver_iter_gauss_seidel(CSRMatrix *A, const double *b, double *x, const int max_iter, double threshold, bool precondition);
+void solver_iter_SOR(CSRMatrix *A, CSRMatrix *AT, double *b, double *x, const int max_iter, double threshold, double omega, bool diagonal_check);
 
 // matrix specific functions
 void CSR_raw_print(const CSRMatrix *A, bool print_values);

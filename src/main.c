@@ -1,5 +1,5 @@
 #include "functions.h"
-#include <time.h>
+#include <sys/time.h>
 
 int main(int argc, char const *argv[])
 {
@@ -15,6 +15,7 @@ int main(int argc, char const *argv[])
     int diagonal_check;
     int precondition;
     double threshold;
+    double omega;
 
 #if defined (USER_INPUT)
     // get the method from the user
@@ -68,8 +69,14 @@ int main(int argc, char const *argv[])
     // set the method based on defined constants at compile time
     #if defined (JACOBI)
         method = 'j';
-    #elif defined (GAUSS_SEIDEL)
-        method = 'g';
+    #elif defined (SOR)
+        method = 's';
+
+        // set the omega based on defined constants at compile time
+        #if defined (OMEGA)
+            omega = OMEGA;
+        #endif
+
     #endif
 
     // set the maximum number of iterations based on defined constants at compile time
@@ -96,9 +103,10 @@ int main(int argc, char const *argv[])
     {
         printf("Jacobi\n");
     }
-    else if (method == 'g')
+    else if (method == 's')
     {
-        printf("Gauss-Seidel\n");
+        printf("Successive Over-Relaxation\n");
+        printf("Omega: %f\n", omega);
     }
 
     printf("Number of iterations: %d\n", max_iter);
@@ -115,14 +123,16 @@ int main(int argc, char const *argv[])
     }
     printf("\n");
 
-    // start the timer
-    clock_t start = clock();
+    // get start (wall clock time)
+    struct timeval start, end;
+    gettimeofday(&start, NULL);
 
     // create a CSRMatrix
     const char *filename = argv[1];
     CSRMatrix *A = (CSRMatrix *)malloc(sizeof(CSRMatrix));
     CSRMatrix *AT = NULL;
     ReadMMtoCSR(filename, A);
+    CSR_raw_print(A, false);
 
     // check if the matrix is triangular
     char triangular = CSR_triangular_test(A);
@@ -230,15 +240,14 @@ int main(int argc, char const *argv[])
     }
 
     // solve the system
-    printf("Solving the system...\n");
+    printf("Solving the system...\n\n");
     if (method == 'j')
     {
         solver_iter_jacobi(A, AT, b, x, max_iter, threshold, diagonal_check);
     }
-    else if (method == 'g')
+    else if (method == 's')
     {
-        printf("Gauss-Seidel is not implemented yet\n");
-        //solver_iter_gauss_seidel(A, b, x, max_iter, threshold, precondition);
+        solver_iter_SOR(A, AT, b, x, max_iter, threshold, omega, diagonal_check);
     }
 
     // compute the residual
@@ -274,4 +283,11 @@ int main(int argc, char const *argv[])
         CSR_free(AT);
         free(AT);
     }
+
+    // get end (wall clock time)
+    gettimeofday(&end, NULL);
+
+    // compute the elapsed time
+    double elapsed_time = (end.tv_sec - start.tv_sec) + (end.tv_usec - start.tv_usec) / 1000000.0;
+    printf("\nElapsed time: %f seconds\n", elapsed_time);
 }

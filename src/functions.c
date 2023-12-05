@@ -357,7 +357,7 @@ void solver_iter_jacobi(CSRMatrix *A, CSRMatrix *AT, double *b, double *x, const
         }
     }
 
-    // check if we need to use a preconditioner
+    // check if we need to do a diagonal check
     if (diagonal_check == true)
     {
         printf("Warning: Checking diagonal entries for zeros. The original matrix might not be preserved.\n");
@@ -381,78 +381,98 @@ void solver_iter_jacobi(CSRMatrix *A, CSRMatrix *AT, double *b, double *x, const
         x[i] = 0.0;
     }
 
+    // make a copy of x to store the previous iteration
+    double *x_prev = (double *)malloc(A->num_cols * sizeof(double));
+
+    // check if memory allocation was successful
+    if (x_prev == NULL)
+    {
+        printf("Error: memory allocation failed\n");
+        return;
+    }
+
     // if we're not given the transpose, we can just do a normal jacobi iteration
     if (AT == NULL)
     {
-        for (int iter = 0; iter < max_iter; iter++)
+        for (int i = 0; i < max_iter; i++)
         {
-            for (int i = 0; i < A->num_rows; i++)
+            // calculate x_prev = x
+            for (int j = 0; j < A->num_cols; j++)
             {
-                double s = 0.0;
-
-                for (int j = A->row_ptr[i]; j < A->row_ptr[i + 1]; j++)
-                {
-                    if (A->col_ind[j] != i)
-                    {
-                        s += A->csr_data[j] * x[A->col_ind[j]];
-                    }
-                }
-
-                x[i] = (b[i] - s) / diagonal[i];
+                x_prev[j] = x[j];
             }
 
-            // check if we've reached the threshold
+            // jacobi
+            for (int j = 0; j < A->num_rows; j++)
+            {
+                double sum = 0.0;
+                for (int k = A->row_ptr[j]; k < A->row_ptr[j + 1]; k++)
+                {
+                    if (A->col_ind[k] != j)
+                    {
+                        sum += A->csr_data[k] * x_prev[A->col_ind[k]];
+                    }
+                }
+                x[j] = (b[j] - sum) / diagonal[j];
+            }
+
+            // check if we've converged
             double residual = compute_residual(A, AT, b, x);
             if (residual < threshold)
             {
-                printf("\nResidual reached threshold. Stopping iterations.");
+                printf("\nConverged after %d iterations.\n", i + 1);
                 break;
             }
 
-            printf("\rIteration: %d", iter);
+            printf("\rIteration: %d", i + 1);
             printf(" | Residual: %e", residual);
             fflush(stdout);
         }
     }
 
-    // if we do have a transpose, then we have a symmetric matrix
+    // otherwise, then we have to consider the tranpose as well
     else if (AT != NULL)
     {
-        for (int iter = 0; iter < max_iter; iter++)
+        for (int i = 0; i < max_iter; i++)
         {
-            for (int i = 0; i < A->num_rows; i++)
+            // calculate x_prev = x
+            for (int j = 0; j < A->num_cols; j++)
             {
-                double s = 0.0;
-
-                for (int j = A->row_ptr[i]; j < A->row_ptr[i + 1]; j++)
-                {
-                    if (A->col_ind[j] != i)
-                    {
-                        s += A->csr_data[j] * x[A->col_ind[j]];
-                    }
-                }
-
-                // same for transpose
-                for (int j = AT->row_ptr[i]; j < AT->row_ptr[i + 1]; j++)
-                {
-                    if (AT->col_ind[j] != i)
-                    {
-                        s += AT->csr_data[j] * x[AT->col_ind[j]];
-                    }
-                }
-
-                x[i] = (b[i] - s) / diagonal[i];
+                x_prev[j] = x[j];
             }
 
-            // check if we've reached the threshold
+            // jacobi
+            for (int j = 0; j < A->num_rows; j++)
+            {
+                double sum = 0.0;
+                for (int k = A->row_ptr[j]; k < A->row_ptr[j + 1]; k++)
+                {
+                    if (A->col_ind[k] != j)
+                    {
+                        sum += A->csr_data[k] * x_prev[A->col_ind[k]];
+                    }
+                }
+
+                for (int k = AT->row_ptr[j]; k < AT->row_ptr[j + 1]; k++)
+                {
+                    if (AT->col_ind[k] != j)
+                    {
+                        sum += AT->csr_data[k] * x_prev[AT->col_ind[k]];
+                    }
+                }
+
+                x[j] = (b[j] - sum) / diagonal[j];
+            }
+
+            // check if we've converged
             double residual = compute_residual(A, AT, b, x);
             if (residual < threshold)
             {
-                printf("\nResidual reached threshold. Stopping iterations.");
+                printf("\nConverged after %d iterations.\n", i + 1);
                 break;
             }
 
-            printf("\rIteration: %d", iter);
+            printf("\rIteration: %d", i + 1);
             printf(" | Residual: %e", residual);
             fflush(stdout);
         }
@@ -465,11 +485,10 @@ void solver_iter_jacobi(CSRMatrix *A, CSRMatrix *AT, double *b, double *x, const
     printf("\n");
 }
 
-/*
-// gauss-seidel method solver
-void solver_iter_gauss_seidel(CSRMatrix *A, const double *b, double *x, const int max_iter, double threshold, bool precondition)
+// successive over-relaxation
+void solver_iter_SOR(CSRMatrix *A, CSRMatrix *AT, double *b, double *x, const int max_iter, double threshold, double omega, bool diagonal_check)
 {
-    // create a vector to store the diagonal elements of A
+    // extract our diagonals
     double *diagonal = (double *)malloc(A->num_rows * sizeof(double));
 
     // check if memory allocation was successful
@@ -491,17 +510,12 @@ void solver_iter_gauss_seidel(CSRMatrix *A, const double *b, double *x, const in
         }
     }
 
-    // check if we need to use a preconditioner
-    if (precondition == true)
+    // check if we need to do a diagonal check
+    if (diagonal_check == true)
     {
-        printf("Warning: preconditioning is enabled. The original matrix will not be preserved.\n");
-        preconditioner_jacobi_gauss(A, diagonal);
-    }
-
-    // initialize x to 0
-    for (int i = 0; i < A->num_cols; i++)
-    {
-        x[i] = 0.0;
+        printf("Warning: Checking diagonal entries for zeros. The original matrix might not be preserved.\n");
+        diagonal_checker(A, diagonal);
+        printf("Diagonal check complete.\n");
     }
 
     // check if the diagonal elements of A are all non-zero
@@ -514,83 +528,125 @@ void solver_iter_gauss_seidel(CSRMatrix *A, const double *b, double *x, const in
         }
     }
 
-    // check if the matrix is triangular
-    char triangular = CSR_triangular_test(A);
-
-    // iterate and compute x
-    // if it's non triangular or upper triangular, we can just do a normal gauss-seidel iteration
-    if (triangular == 'N' || triangular == 'U')
+    // initialize x to 0
+    for (int i = 0; i < A->num_cols; i++)
     {
-        for (int iter = 0; iter < max_iter; iter++)
+        x[i] = 0.0;
+    }
+
+    // make a copy of x to store the previous iteration
+    double *x_prev = (double *)malloc(A->num_cols * sizeof(double));
+
+    // check if memory allocation was successful
+    if (x_prev == NULL)
+    {
+        printf("Error: memory allocation failed\n");
+        return;
+    }
+
+    // if we're not given the transpose, we can just do a normal SOR
+    if (AT == NULL)
+    {
+        for (int i = 0; i < max_iter; i++)
         {
-            for (int i = 0; i < A->num_rows; i++)
+            // calculate x_prev = x
+            for (int j = 0; j < A->num_cols; j++)
+            {
+                x_prev[j] = x[j];
+            }
+
+            // SOR
+            for (int j = 0; j < A->num_rows; j++)
             {
                 double s1 = 0.0;
                 double s2 = 0.0;
-
-                for (int j = A->row_ptr[i]; j < A->row_ptr[i + 1]; j++)
+                for (int k = A->row_ptr[j]; k < A->row_ptr[j + 1]; k++)
                 {
-                    if (A->col_ind[j] < i)
+                    if (A->col_ind[k] < j)
                     {
-                        s1 += A->csr_data[j] * x[A->col_ind[j]];
+                        s1 += A->csr_data[k] * x[A->col_ind[k]];
                     }
-                    else if (A->col_ind[j] > i)
+                    else if (A->col_ind[k] > j)
                     {
-                        s2 += A->csr_data[j] * x[A->col_ind[j]];
+                        s2 += A->csr_data[k] * x_prev[A->col_ind[k]];
                     }
                 }
-
-                x[i] = (b[i] - s1 - s2) / diagonal[i];
+                x[j] = (1 - omega) * x_prev[j] + (omega / diagonal[j]) * (b[j] - s1 - s2);
             }
+
+            // check if we've converged
+            double residual = compute_residual(A, AT, b, x);
+            if (residual < threshold)
+            {
+                printf("\nConverged after %d iterations.\n", i + 1);
+                break;
+            }
+
+            printf("\rIteration: %d", i + 1);
+            printf(" | Residual: %e", residual);
+            fflush(stdout);
         }
     }
 
-    // if it's lower triangular, the matrix is symmetric, skew, or hermitian
-    // we have iterate but take into account both halfs of the matrix (reflection across x axis)
-    else if (triangular == 'L')
+    // otherwise if we're given the transpose, we must consider it symmetric
+    else if (AT != NULL)
     {
-        for (int iter = 0; iter < max_iter; iter++)
+        for (int i = 0; i < max_iter; i++)
         {
-            for (int i = 0; i < A->num_rows; i++)
+            // calculate x_prev = x
+            for (int j = 0; j < A->num_cols; j++)
+            {
+                x_prev[j] = x[j];
+            }
+
+            // SOR
+            for (int j = 0; j < A->num_rows; j++)
             {
                 double s1 = 0.0;
                 double s2 = 0.0;
-
-                for (int j = A->row_ptr[i]; j < A->row_ptr[i + 1]; j++)
+                for (int k = A->row_ptr[j]; k < A->row_ptr[j + 1]; k++)
                 {
-                    if (A->col_ind[j] < i)
+                    if (A->col_ind[k] < j)
                     {
-                        s1 += A->csr_data[j] * x[A->col_ind[j]];
+                        s1 += A->csr_data[k] * x[A->col_ind[k]];
                     }
-                    else if (A->col_ind[j] > i)
+                    else if (A->col_ind[k] > j)
                     {
-                        s2 += A->csr_data[j] * x[A->col_ind[j]];
+                        s2 += A->csr_data[k] * x_prev[A->col_ind[k]];
                     }
                 }
 
-                CSR_transpose(A);
-                for (int j = A->row_ptr[i]; j < A->row_ptr[i + 1]; j++)
+                for (int k = AT->row_ptr[j]; k < AT->row_ptr[j + 1]; k++)
                 {
-                    if (A->col_ind[j] < i)
+                    if (AT->col_ind[k] < j)
                     {
-                        s1 += A->csr_data[j] * x[A->col_ind[j]];
+                        s1 += AT->csr_data[k] * x[AT->col_ind[k]];
                     }
-                    else if (A->col_ind[j] > i)
+                    else if (AT->col_ind[k] > j)
                     {
-                        s2 += A->csr_data[j] * x[A->col_ind[j]];
+                        s2 += AT->csr_data[k] * x_prev[AT->col_ind[k]];
                     }
                 }
-                CSR_transpose(A);
 
-                x[i] = (b[i] - s1 - s2) / diagonal[i];
+                x[j] = (1 - omega) * x_prev[j] + (omega / diagonal[j]) * (b[j] - s1 - s2);
             }
+
+            // check if we've converged
+            double residual = compute_residual(A, AT, b, x);
+            if (residual < threshold)
+            {
+                printf("\nConverged after %d iterations.\n", i + 1);
+                break;
+            }
+
+            printf("\rIteration: %d", i + 1);
+            printf(" | Residual: %e", residual);
+            fflush(stdout);
         }
     }
-
-    // free the diagonal vector
-    free(diagonal);
 }
-*/
+
+// -- end of solving stuff --
 
 // --- matrix specific functions ---
 
