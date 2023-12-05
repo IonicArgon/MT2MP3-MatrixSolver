@@ -21,7 +21,7 @@ typedef struct {
 
 
 void ReadMMtoCSR(const char *filename, CSRMatrix *matrix);
-void spmv_csr(CSRMatrix *A, const double *x, double *y);
+void spmv_csr(CSRMatrix *A, CSRMatrix *AT, const double *x, double *y);
 
 // ###########################################################
 
@@ -39,11 +39,11 @@ printing the whole vector r might not be a good idea. So
 // extra stuff
 bool fuzzy_equals(double a, double b, double epsilon);
 double compute_norm(double *x, int n);
-double compute_residual(CSRMatrix *A, const double *b, const double *x);
+double compute_residual(CSRMatrix *A, CSRMatrix *AT, const double *b, const double *x);
 
 // solving stuff
-void preconditioner_jacobi_gauss(CSRMatrix *A, double *diagonal);
-void solver_iter_jacobi(CSRMatrix *A, const double *b, double *x, const int max_iter, double threshold, bool precondition);
+void diagonal_checker(CSRMatrix *A, double *diagonal);
+void solver_iter_jacobi(CSRMatrix *A, CSRMatrix *AT, double *b, double *x, const int max_iter, double threshold, bool diagonal_check);
 //void solver_iter_gauss_seidel(CSRMatrix *A, const double *b, double *x, const int max_iter, double threshold, bool precondition);
 
 // matrix specific functions
@@ -53,6 +53,6 @@ void CSR_free(CSRMatrix *A);
 char CSR_triangular_test(const CSRMatrix *A);
 void CSR_transpose(CSRMatrix *A);
 void CSR_row_swap(CSRMatrix *A, int row1, int row2);
-bool CSR_strictly_diagonally_dominant(const CSRMatrix *A);
+bool CSR_strictly_diagonally_dominant(const CSRMatrix *A, const CSRMatrix *AT);
 
 #endif // FUNCTIONS_H

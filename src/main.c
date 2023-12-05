@@ -1,4 +1,5 @@
 #include "functions.h"
+#include <time.h>
 
 int main(int argc, char const *argv[])
 {
@@ -11,6 +12,7 @@ int main(int argc, char const *argv[])
 
     char method;
     int max_iter;
+    int diagonal_check;
     int precondition;
     double threshold;
 
@@ -25,11 +27,15 @@ int main(int argc, char const *argv[])
     printf("Please enter the maximum number of iterations:\n");
     scanf("%d", &max_iter);
 
-    // get the preconditioner from the user
-    printf("Please select a preconditioner:\n");
+    // ask if the user wants a diagonal check
+    printf("Perform diagonal check?\n");
     printf("\t1. None (0)\n");
-    printf("\t2. Jacobi (1)\n");
-    scanf("%d", &precondition);
+    printf("\t2. Yes (1)\n");
+    scanf("%d", &diagonal_check);
+
+    // get the threshold from the user
+    printf("Please enter the threshold:\n");
+    scanf("%lf", &threshold);
 
     // check if the user entered a valid method
     if (method != 'j' && method != 'g')
@@ -38,10 +44,17 @@ int main(int argc, char const *argv[])
         return 1;
     }
 
-    // check if the user entered a valid preconditioner
-    if (precondition != 0 && precondition != 1)
+    // check if the diagonal check is valid
+    if (diagonal_check != 0 && diagonal_check != 1)
     {
-        printf("Invalid preconditioner\n");
+        printf("Invalid choice for diagonal check\n");
+        return 1;
+    }
+
+    // check if the user entered a valid threshold
+    if (threshold < 0.0)
+    {
+        printf("Invalid threshold\n");
         return 1;
     }
 
@@ -69,11 +82,11 @@ int main(int argc, char const *argv[])
         threshold = THRESHOLD;
     #endif
 
-    // set the preconditioner based on defined constants at compile time
-    #if defined (PRECONDITIONING)
-        precondition = 1;
+    // set the diagonal check based on defined constants at compile time
+    #if defined (DIAGONAL_CHECK)
+        diagonal_check = 1;
     #else
-        precondition = 0;
+        diagonal_check = 0;
     #endif
 #endif
 
@@ -91,30 +104,70 @@ int main(int argc, char const *argv[])
     printf("Number of iterations: %d\n", max_iter);
     printf("Threshold: %e\n", threshold);
 
-    printf("Preconditioner: ");
-    if (precondition == 0)
+    printf("Diagonal check: ");
+    if (diagonal_check == 0)
     {
-        printf("None\n");
+        printf("No\n");
     }
-    else if (precondition == 1)
+    else if (diagonal_check == 1)
     {
-        printf("Jacobi\n");
+        printf("Yes\n");
     }
     printf("\n");
 
+    // start the timer
+    clock_t start = clock();
 
     // create a CSRMatrix
     const char *filename = argv[1];
     CSRMatrix *A = (CSRMatrix *)malloc(sizeof(CSRMatrix));
+    CSRMatrix *AT = NULL;
     ReadMMtoCSR(filename, A);
-    CSR_raw_print(A, false);
 
-    // run python if flag is set
-    #if defined (PYTHON)
-    char command[100];
-    sprintf(command, "python3 ../src/visualize.py %s", filename);
-    system(command);
-    #endif
+    // check if the matrix is triangular
+    char triangular = CSR_triangular_test(A);
+    if (triangular == 'N')
+    {
+        printf("The matrix is not triangular\n");
+    }
+    else if (triangular == 'L')
+    {
+        printf("The matrix is lower triangular\n");
+    }
+    else if (triangular == 'U')
+    {
+        printf("The matrix is upper triangular\n");
+    }
+    printf("\n");
+
+    // if the matrix is lower triangular, create the transpose
+    if (triangular == 'L')
+    {
+        AT = (CSRMatrix *)malloc(sizeof(CSRMatrix));
+        AT->num_cols = A->num_cols;
+        AT->num_rows = A->num_rows;
+        AT->num_non_zeros = A->num_non_zeros;
+        AT->csr_data = (double *)malloc(AT->num_non_zeros * sizeof(double));
+        AT->col_ind = (int *)malloc(AT->num_non_zeros * sizeof(int));
+        AT->row_ptr = (int *)malloc((AT->num_rows + 1) * sizeof(int));
+        memcpy(AT->csr_data, A->csr_data, AT->num_non_zeros * sizeof(double));
+        memcpy(AT->col_ind, A->col_ind, AT->num_non_zeros * sizeof(int));
+        memcpy(AT->row_ptr, A->row_ptr, (AT->num_rows + 1) * sizeof(int));
+
+        CSR_transpose(AT);
+    }
+
+    // check if the matrix is strictly diagonally dominant
+    bool sdd = CSR_strictly_diagonally_dominant(A, AT);
+    if (sdd)
+    {
+        printf("The matrix is strictly diagonally dominant\n");
+    }
+    else
+    {
+        printf("The matrix is not strictly diagonally dominant\n");
+    }
+    printf("\n");
 
     // create a vector x and b to prepare for solving
     double *x = (double *)malloc(A->num_cols * sizeof(double));
@@ -139,33 +192,6 @@ int main(int argc, char const *argv[])
     }
     #endif
 
-    // check if the matrix is triangular
-    char triangular = CSR_triangular_test(A);
-    if (triangular == 'N')
-    {
-        printf("The matrix is not triangular\n");
-    }
-    else if (triangular == 'L')
-    {
-        printf("The matrix is lower triangular\n");
-    }
-    else if (triangular == 'U')
-    {
-        printf("The matrix is upper triangular\n");
-    }
-    printf("\n");
-
-    // check if the matrix is strictly diagonally dominant
-    bool sdd = CSR_strictly_diagonally_dominant(A);
-    if (sdd)
-    {
-        printf("The matrix is strictly diagonally dominant\n");
-    }
-    else
-    {
-        printf("The matrix is not strictly diagonally dominant\n");
-    }
-
     // show that the matrix multiplication works with an array of ones
     for (int i = 0; i < A->num_cols; i++)
     {
@@ -173,7 +199,9 @@ int main(int argc, char const *argv[])
     }
 
     // compute the matrix-vector product
-    spmv_csr(A, x, b);
+    printf("Computing the matrix-vector product...\n");
+    spmv_csr(A, AT, x, b);
+    printf("\n");
 
     // print the result if PRINT is defined
     #if defined (PRINT)
@@ -205,7 +233,7 @@ int main(int argc, char const *argv[])
     printf("Solving the system...\n");
     if (method == 'j')
     {
-        solver_iter_jacobi(A, b, x, max_iter, threshold, precondition);
+        solver_iter_jacobi(A, AT, b, x, max_iter, threshold, diagonal_check);
     }
     else if (method == 'g')
     {
@@ -214,7 +242,7 @@ int main(int argc, char const *argv[])
     }
 
     // compute the residual
-    double residual = compute_residual(A, b, x);
+    double residual = compute_residual(A, AT, b, x);
     printf("\nResidual: %e\n", residual);
 
     // print the solution if PRINT is defined
@@ -240,4 +268,10 @@ int main(int argc, char const *argv[])
     free(x);
     free(b);
     free(A);
+
+    if (AT != NULL)
+    {
+        CSR_free(AT);
+        free(AT);
+    }
 }
