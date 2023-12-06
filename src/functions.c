@@ -481,6 +481,9 @@ void solver_iter_jacobi(CSRMatrix *A, CSRMatrix *AT, double *b, double *x, const
     // free the diagonal vector
     free(diagonal);
 
+    // free the x_prev vector
+    free(x_prev);
+
     printf("\nSolver complete.\n");
     printf("\n");
 }
@@ -644,6 +647,15 @@ void solver_iter_SOR(CSRMatrix *A, CSRMatrix *AT, double *b, double *x, const in
             fflush(stdout);
         }
     }
+
+    // free the diagonal vector
+    free(diagonal);
+
+    // free the x_prev vector
+    free(x_prev);
+
+    printf("\nSolver complete.\n");
+    printf("\n");
 }
 
 // -- end of solving stuff --

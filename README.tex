@@ -200,27 +200,41 @@
 	\section{Introduction}
     For this assignment, we created C code that reads a Matrix Market file, saves it as some CSRMatrix structure, and uses it to solve for $A*x=b$.
 
-    \section{Algorithm}
-    The algorithm employed in my program was the Jacobi method, a method of solving for matrices iteratively. We set the solution matrix $x$ to some initial guess. In my code, we set the values to be zero initially. Then, on each iteration, we calculate the next value of $x$ with the following algorithm:
+    \section{Algorithms}
+    \subsection{Jacobi method}
+    One of the algorithms employed in my program was the Jacobi method, a method of solving for matrices iteratively. We set the solution matrix $x$ to some initial guess. In my code, we set the values to be zero initially. Then, on each iteration, we calculate the next value of $x$ with the following algorithm:
 
     \[
      {x_{i}}^{(k+1)} =  \frac{1}{a_{ii}} \big(b_{i} -  \sum_{j\neq i}^{}{a_{ij}{x_{j}}^{(k)}} \big), i=1,2,...,n
     \]
 
-    This works for most cases. However, there are cases where the solution never converges. Such an example is when the matrix is singular, or there exists a zero somewhere down the diagonal. In my code, I also added a Jacobi preprocessor, which attempts to swap rows around until there are zeros down the diagonal. \\
+    This works for most cases. However, there are cases where the solution never converges. Such an example is when the matrix is singular, or there exists a zero somewhere down the diagonal. In my code, I also added a diagonal checker, which attempts to swap rows around until there are zeros down the diagonal. \\
 
-    Another way this method could fail is if the matrix is not strictly diagonally dominant. In a strictly diagonally dominant system, the following inequality is satisfied down the diagonal:
+    Another way this method could fail is if the matrix is not diagonally dominant. In a diagonally dominant system, the following inequality is satisfied down the diagonal:
 
     \[
     |a_{ii}|  \geq  \sum_{j\neq i}^{}|a_{ij}| 
     \]
+
+    The Jacobi method fails when the system is not diagonally dominant and will diverge towards infinity.
+
+    \subsection{Successive Over-Relaxation}
+    The other algorithm employed in this program was Successive Over-Relaxation (SOR). It is a variation of the Guass-Seidel method (which itself is similar to the Jacobi method, but differs in that it forward-substitutes values to converge quicker towards the answer). How SOR works is by taking a weighted average of our current estimate and the next estimate based on some "relaxation factor" $\omega$. This can cause our solution to converge faster, but larger values of $\omega \geq 1$, it could make the algorithm unstable and end up making it diverge instead. \\
+
+    This is the algorithm, notice the similarities to the Gauss-Seidel method:
+
+    \[
+    {x_{i}}^{(k+1)} =  (1 - \omega){x_{i}}^{(k)} + \frac{\omega}{a_{ii}} \big(b_{i} - \sum_{j<i}^{}{a_{ij}{x_{j}}^{(k+1)}} - \sum_{j>i}^{}{a_{ij}{x_{j}}^{(k)}} \big), i=1,2,...,n
+    \]
+
+    The benefit of choosing this algorithm over the Jacobi Method is that convergence is generally faster. Like stated before though, the method is potentially unstable for very large relaxation factors.
 
     \newpage
 
 	\section{Results}
     \begin{table}[h!]
         \small
-		\caption{Results of Jacobi Method, Max 10,000 iterations, Residual Threshold of 1e-7}
+		\caption{Results of Jacobi Method, Max 10,000 iterations, Residual Threshold of 1e-14}
 		\label{table:1}
 		\centering
 		\begin{tabular}{c c c c c c}
@@ -228,61 +242,67 @@
 			Problem & \multicolumn{2}{c}{Size} & Non-zeros & CPU time (sec) & Norm-Residual \\
 			& row & column & & &  \\
             \hline
-            LFAT5.mtx & 14 & 14 & 30 & 0.008 & 9.823480e-08 \\
-            LF10.mtx & 18 & 18 & 50 & 0.203 & 1.656052e-05 \\
-            ex3.mtx & 1821 & 1821 & 27253 & 57.678 & 3.636329e+01 \\
-            jnlbrng1.mtx & 40000 & 40000 & 119600 & 19.635 & 9.906812e-08 \\
-            ACTIVSg70K & 69999 & 69999 & 154313 & 6:22.76 & -nan \\
-            2cubes\_sphere.mtx & 101492 & 101492 & 874373 & 10.353 & 8.122470e-08 \\
-            tmt\_sym.mtx & 726713 & 726713 & 2903837 & N\textbackslash A & N\textbackslash A \\
-            StocF-1465.mtx & 1465137 & 1465137 & 11235263 & N\textbackslash A & N\textbackslash A \\
+            LFAT5.mtx & 14 & 14 & 30 & 0.105591 & 2.659256e-14 \\
+            LF10.mtx & 18 & 18 & 50 & 0.125620 & 3.783679e-02 \\
+            ex3.mtx & 1821 & 1821 & 27253 & 1.984293 & -nan \\
+            jnlbrng1.mtx & 40000 & 40000 & 119600 & 9.686789 & 1.253505e-12 \\
+            ACTIVSg70K & 69999 & 69999 & 154313 & 29.686923 & -nan \\
+            2cubes\_sphere.mtx & 101492 & 101492 & 874378 & 84.701966 & -nan \\
+            tmt\_sym.mtx & 726713 & 726713 & 2903837 & 334.341352& -nan \\
+            StocF-1465.mtx & 1465137 & 1465137 & 11235263 & 934.029447 & -nan \\
 			\hline
 		\end{tabular}
 	\end{table}
 
-    Values were not gotten for \verb|tmt_sym.mtx| and \verb|StocF-1465.mtx| because iteration was way too slow for me to get values within a reasonable amount of time. \\
+    \begin{table}[h!]
+        \small
+		\caption{Results of Successive Over-Relaxation, Max 10,000 iterations, Omega = 1.5, Residual Threshold of 1e-14}
+		\label{table:1}
+		\centering
+		\begin{tabular}{c c c c c c}
+			\hline
+			Problem & \multicolumn{2}{c}{Size} & Non-zeros & CPU time (sec) & Norm-Residual \\
+			& row & column & & &  \\
+            \hline
+            LFAT5.mtx & 14 & 14 & 30 & 0.093380 & 2.956614e-14 \\
+            LF10.mtx & 18 & 18 & 50 & 0.102590 & 4.467470e-13 \\
+            ex3.mtx & 1821 & 1821 & 27253 & 1.855408 & 5.937263e+01 \\
+            jnlbrng1.mtx & 40000 & 40000 & 119600 & 9.516753 & 2.021652e-12 \\
+            ACTIVSg70K & 69999 & 69999 & 154313 & 32.508544 & -nan \\
+            2cubes\_sphere.mtx & 101492 & 101492 & 874378 & 89.707143 & 8.766432e-14 \\
+            tmt\_sym.mtx & 726713 & 726713 & 2903837 & 355.608555 & 8.538759e+02 \\
+            StocF-1465.mtx & 1465137 & 1465137 & 11235263 & 1015.277404 & 7.764548e+03 \\
+			\hline
+		\end{tabular}
+	\end{table}
 
-    The residual was poor for \verb|ex3.mtx| potentially because the matrix is not strictly diagonally dominant. However, considering that the norm of the residual was pretty low, maybe I just needed to give it more time to iterate through to converge to a nice solution. In a similar vain, \verb|ACTIVSg70K.mtx| is also not strictly diagonally dominant, and we can see by the norm of the residual that our solution has diverged to negative infinity, and so this isn't solvable via the Jacobi method.
+    I notice that the performance of the Jacobi Method is significantly worse than Successive Over-Relaxation. My hypothesis as to why this is the case is that the algorithm for SOR is similar to the Gauss-Seidel method, which uses forward substitution to speed up convergence. Further, the relaxation factor would converge our solution faster since it's based on a weighted average between the previous and current solution. Therefore, as we converge, the average between the previous and current solutions should get smaller and smaller, converging faster. \\
 
+    As for why we were not able to converge for certain matrices, it's most likely because all these matrices are not \emph{strictly} diagonally dominant. They might be diagonally dominant in specific rows, making these matrices weakly diagonally dominant, but a strictly diagonally dominant matrix would have guaranteed convergence.
+    
     \subsection{VTune}
     Here is the VTune CLI output:
     \begin{verbatim}
-vtune -collect hotspots -report summary ./bin/main ./test/LFAT5.mtx
-vtune: Warning: Only user space will be profiled due to credentials lack. Consider changing /proc/sys/kernel/perf_event_paranoid file for enabling kernel space profiling.
-vtune: Collection started. To stop the collection, either press CTRL-C or enter from another console window: vtune -r /home/ionicargon/MECHTRON-2MP3/github/MT2MP3-MatrixSolver/r001hs -command stop.
-Method: Jacobi
-Number of iterations: 10000
-Threshold: 1.000000e-07
-Preconditioner: Jacobi
-
-Raw print of CSRMatrix:
-        - Number of rows: 14
-        - Number of columns: 14
-        - Number of non-zero elements: 30
-The matrix is lower triangular
-
-The matrix is not strictly diagonally dominant
-Solving the system...
-Warning: preconditioning is enabled. The original matrix will not be preserved.
-Preconditioning complete.
-Iteration: 518
-Residual reached threshold. Stopping iterations.
-Solver complete.
-
-
-Residual: 9.823480e-08
 vtune: Collection stopped.
-vtune: Using result path `/home/ionicargon/MECHTRON-2MP3/github/MT2MP3-MatrixSolver/r001hs'
-vtune: Executing actions 75 % Generating a report                              Elapsed Time: 0.149s
- | Application execution time is too short. Metrics data may be unreliable.
- | Consider reducing the sampling interval or increasing your application
- | execution time.
- |
+vtune: Using result path `/home/ionicargon/MECHTRON-2MP3/github/MT2MP3-MatrixSolver/r002hs'
+vtune: Executing actions 75 % Generating a report                              Elapsed Time: 34.291s
+    CPU Time: 34.120s
+        Effective Time: 34.120s
+        Spin Time: 0s
+        Overhead Time: 0s
+    Total Thread Count: 1
+    Paused Time: 0s
 
 Top Hotspots
-Function  Module  CPU Time  % of CPU Time(%)
---------  ------  --------  ----------------
-Effective Physical Core Utilization: 7.8% (0.467 out of 6)
+Function          Module     CPU Time  % of CPU Time(%)
+----------------  ---------  --------  ----------------
+solver_iter_SOR   main        17.470s             51.2%
+spmv_csr          main        13.800s             40.4%
+compute_residual  main         1.739s              5.1%
+compute_norm      main         0.640s              1.9%
+__GI__IO_fflush   libc.so.6    0.301s              0.9%
+[Others]          N/A          0.170s              0.5%
+Effective Physical Core Utilization: 14.8% (0.888 out of 6)
  | The metric value is low, which may signal a poor physical CPU cores
  | utilization caused by:
  |     - load imbalance
@@ -295,7 +315,7 @@ Effective Physical Core Utilization: 7.8% (0.467 out of 6)
  | or run the Locks and Waits analysis to identify parallel bottlenecks for
  | other parallel runtimes.
  |
-    Effective Logical Core Utilization: 4.7% (0.560 out of 12)
+    Effective Logical Core Utilization: 7.9% (0.952 out of 12)
      | The metric value is low, which may signal a poor logical CPU cores
      | utilization. Consider improving physical core utilization as the first
      | step and then look at opportunities to utilize logical cores, which in
@@ -303,12 +323,12 @@ Effective Physical Core Utilization: 7.8% (0.467 out of 6)
      | multi-threaded applications.
      |
 Collection and Platform Info
-    Application Command Line: ./bin/main "./test/LFAT5.mtx" 
+    Application Command Line: ./bin/main "./test/jnlbrng1.mtx" 
     Operating System: 5.15.133.1-microsoft-standard-WSL2 DISTRIB_ID=Ubuntu DISTRIB_RELEASE=22.04 DISTRIB_CODENAME=jammy DISTRIB_DESCRIPTION="Ubuntu 22.04.3 LTS"
     Computer Name: DESKTOP-J8KNLS6
-    Result Size: 3.6 MB 
-    Collection start time: 04:36:39 04/12/2023 UTC
-    Collection stop time: 04:36:40 04/12/2023 UTC
+    Result Size: 4.7 MB 
+    Collection start time: 00:03:56 06/12/2023 UTC
+    Collection stop time: 00:04:30 06/12/2023 UTC
     Collector Type: Driverless Perf per-process counting,User-mode sampling and tracing
     CPU
         Name: Intel(R) microarchitecture code named Coffeelake
@@ -322,15 +342,18 @@ If you want to skip descriptions of detected performance issues in the report,
 enter: vtune -report summary -report-knob show-issues=false -r <my_result_dir>.
 Alternatively, you may view the report in the csv format: vtune -report
 <report_name> -format=csv.
-vtune: Executing actions 100 % done      
+vtune: Executing actions 100 % done    
     \end{verbatim}
 
-    The VTune outputs for all the other files (except for the ones that I couldn't solve) were pretty similar. We have poor core usage, probably because we're not parallelizing the code. It's hard to effectively parallelize this algorithm though because it is iterative and relies on past values to predict future values, which means it's difficult for the threads to reliably communicate between each other.
+    The VTune outputs for all the other files (except for the ones that I couldn't solve) were pretty similar. \\
 
+    As we can see, the bulk of the hotspots are in the SOR solving function (it's the Jacobi function when I compile it as such) and the function \verb|spmv_csr|, the function that performs matrix multiplications. There really isn't any other way of optimizing these functions short of parallelizing them. \\
+
+    Furthermore, the poor core usage indicator shows that this program could use the benefits of parallelism to run code in concurrent tasks, which would speed up our code significantly.
     \newpage
 
     \section{Matrix Visualization}
-    These matrices were visualized using \verb|scipy| and \verb|matplotlib| in Python 3.12. I could not link the Python properly to the C program because WSL does not come installed with an X server, so any GUI program does not work properly in WSL. Further, matrices that were larger than \verb|ex3.mtx| required exponentially more memory than I have, so I couldn't plot them.
+    These matrices were visualized using \verb|numpy| and \verb|matplotlib| in Python 3.12. I could not link the Python properly to the C program because WSL does not come installed with an X server, so any GUI program does not work properly in WSL. Further, matrices that were larger than \verb|ex3.mtx| required exponentially more memory than I have, so I couldn't plot them.
 
     \begin{center}
         \includegraphics[scale=0.75]{b1_ss}
@@ -339,44 +362,62 @@ vtune: Executing actions 100 % done
         \includegraphics[scale=0.75]{ex3}
     \end{center}
 
+    The visualizations of the larger files are achieved with a scatter plot as the binary matrices take up too much memory:
+
+    \begin{center}
+        \includegraphics[scale=0.75]{images/jnlbrng1.png}
+        \includegraphics[scale=0.75]{images/ACTIVSg70K.png}
+        \includegraphics[scale=0.75]{images/2cubes_sphere.png}
+        \includegraphics[scale=0.75]{images/tmt_sym.png}
+        \includegraphics[scale=0.75]{images/StocF-1465.png}
+    \end{center}
+
     \newpage
     Here is the code used to visualize these matrices:
 
     \begin{python}
-import numpy as np
 import matplotlib.pyplot as plt
-import matplotlib.colors as colors
-from matplotlib.patches import Patch
-import scipy.io as sio
-from scipy.sparse import tril, triu
+from scipy.io import mmread
 
-# get file from command line
-import sys
-file = sys.argv[1]
+def visualize_matrix_market(file_path):
+    matrix = mmread(file_path)
 
-# custom colormap
-cmap = colors.ListedColormap(['black', 'white'])
+    non_zero_indices = matrix.nonzero()
+    rows, cols = non_zero_indices
 
-# load the Matrix Market file
-matrix = sio.mmread(file)
+    plt.scatter(cols, rows, s=5, c='blue', marker='o')
+    plt.title(f'Non-Zero Pattern of Matrix {file_path}')
+    plt.xlabel('Column Index')
+    plt.ylabel('Row Index')
+    plt.grid(True)
+    plt.show()
 
-# only reflect if the original matrix is lower triangular (csfmatrix stores lower triangular for symmetric matrices)
-if matrix.shape[0] == matrix.shape[1] and (triu(matrix, 1).nnz == 0):
-    # reflect the matrix
-    matrix = triu(matrix, 1) + tril(matrix, -1).T
+matrix_market_file_path = 'your_matrix_market_file.mtx'
+visualize_matrix_market(matrix_market_file_path)
+    \end{python}
 
-# create a binary mask of the matrix
-mask = matrix.astype(bool).toarray()
+    The code for the larger matrices was similar:
 
-# display the mask using matplotlib
-plt.imshow(mask, cmap=cmap, interpolation='nearest')
-plt.title(f'Nonzero Pattern of {file}')
-plt.xlabel('Column')
-plt.ylabel('Row')
-legend_elements = [Patch(facecolor='black', edgecolor='black', label='Zero'),
-                     Patch(facecolor='white', edgecolor='white', label='Nonzero')]
-plt.legend(handles=legend_elements, bbox_to_anchor=(1.05, 1), loc='upper left', borderaxespad=0.)
-plt.show()
+    \begin{python}
+import matplotlib.pyplot as plt
+from scipy.io import mmread
+import numpy as np
+
+def visualize_matrix_market(file_path):
+    matrix = mmread(file_path)
+
+    binary_matrix = np.zeros_like(matrix.toarray())
+    binary_matrix[matrix.nonzero()] = 1
+
+    plt.imshow(binary_matrix, cmap='Blues', interpolation='none', aspect='auto')
+    plt.title(f'Non-Zero Pattern of Matrix {file_path}')
+    plt.xlabel('Column Index')
+    plt.ylabel('Row Index')
+    plt.show()
+
+matrix_market_file_path = 'your_matrix_market_file.mtx'
+visualize_matrix_market(matrix_market_file_path)
+
     \end{python}
 
     \newpage
@@ -390,12 +431,11 @@ CC=gcc
 CFLAGS=-lm -Ofast
 DFLAGS=-Wall -Wextra -W -g -O0 -lm
 
+FLAGSSOR= -DSOR -DMAX_ITER=10000 -DTHRESHOLD=1e-14 -DOMEGA=1.5  -DDIAGONAL_CHECK
+FLAGSJacobi= -DJACOBI -DMAX_ITER=10000 -DTHRESHOLD=1e-14 -DDIAGONAL_CHECK 
+FLAGSPrint= -DPRINT=1
 
-#FLAGSGaussSeidel= -DGAUSS_SEIDEL -DMAX_ITER=10000 -DTHRESHOLD=1e- #-DPRECONDITIONING
-FLAGSJacobi= -DJACOBI -DMAX_ITER=10000 -DTHRESHOLD=1e-7 -DPRECONDITIONING
-FLAGSPrint= -DPRINT=1 -DPYTHON
-
-FLAGS= $(CFLAGS) $(FLAGSJacobi) # $(FLAGSPrint) #-DUSER_INPUT
+FLAGS= $(DFLAGS) $(FLAGSSOR) # $(FLAGSPrint) #-DUSER_INPUT
 
 SDIR=src
 IDIR=include
@@ -429,17 +469,20 @@ clean:
 check_dir:
 	if [ ! -d "./$(ODIR)/" ]; then mkdir $(ODIR); fi
 	if [ ! -d "./$(BDIR)/" ]; then mkdir $(BDIR); fi
-
     \end{verbatim}
 
     This Makefile is similar to the one I had for assignment 2, but with a few differences:
     \begin{itemize}
-        \item I have a set of flags for choosing between different methods. Originally, my code worked for the two methods, but I ran out of time when I forgot that the implementation of the Matrix Market file requires that lower triangular matrices be treated as symmetric matrices.
+        \item I have a set of flags (\verb|FLAGSJacobi|, \verb|FLAGSSOR|) for choosing between different methods. Originally, my code worked for the two methods, the Jacobi Method and Successive Over-Relaxation. We can use these variables in the \verb|FLAGS| variable to change the method we compile with.
+        \begin{itemize}
+            \item \verb|MAX_ITER| defines the maximum number of iterations.
+            \item \verb|THRESHOLD| is how low our norm of the residual needs to reach before we end early.
+            \item For SOR, \verb|OMEGA| is our relaxation factor $\omega \geq 1$
+            \item \verb|DIAGONAL_CHECK| will check through the diagonal for zeros and perform row swaps to try to fill in zeros.
+        \end{itemize}
+
+        
         \item the \verb|check_dir| checks to see if the build and object directories exist before building the program. If they don't exist, they are automatically created.
-        \item I used a bunch of flags to tell the compiler which sections of the code to compile (i.e. printing raw or pretty, printing or outputting to a file, defining values for max iterations, threshold, etc.)
+        \item \verb|DPRINT| selects the kind of printing we have in the program. 1 prints the raw CSR matrix while 2 pretty prints the matrix, generating an ASCII matrix in the terminal. If this flag isn't defined, then the code outputs to files by default.
     \end{itemize}
-
-    
-
-	
 \end{document}
