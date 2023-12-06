@@ -1,5 +1,6 @@
 import matplotlib.pyplot as plt
 from scipy.io import mmread
+import numpy as np
 
 def visualize_matrix_market(file_path):
     matrix = mmread(file_path)
